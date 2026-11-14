@@ -1,13 +1,90 @@
 [
-  { "name": "Tilda", "html": ["tildacdn", "generator\" content=\"Tilda"] },
-  { "name": "Wix", "html": ["static\\.wixstatic\\.com"], "headers": [{ "name": "x-wix-request-id", "re": "." }] },
-  { "name": "WordPress", "html": ["wp-content", "wp-includes"] },
-  { "name": "uCoz", "html": ["ucoz"] },
-  { "name": "1С-Битрикс", "html": ["/bitrix/"] },
-  { "name": "Joomla", "html": ["/media/jui/", "generator\" content=\"Joomla"] },
-  { "name": "Nethouse", "html": ["nethouse"] },
-  { "name": "Craftum", "html": ["craftum"] },
-  { "name": "uKit", "html": ["ukit"] },
-  { "name": "Flexbe", "html": ["flexbe"] },
-  { "name": "Taplink", "html": ["taplink"] }
+  {
+    "name": "Tilda",
+    "html": [
+      "tildacdn\\."
+    ],
+    "generator": [
+      "^Tilda"
+    ]
+  },
+  {
+    "name": "Wix",
+    "html": [
+      "static\\.wixstatic\\.com"
+    ],
+    "generator": [
+      "^Wix"
+    ],
+    "headers": [
+      {
+        "name": "x-wix-request-id",
+        "re": "."
+      }
+    ]
+  },
+  {
+    "name": "WordPress",
+    "html": [
+      "/wp-content/",
+      "/wp-includes/"
+    ],
+    "generator": [
+      "^WordPress"
+    ]
+  },
+  {
+    "name": "uCoz",
+    "html": [
+      "ucoz\\."
+    ],
+    "generator": [
+      "^uCoz"
+    ]
+  },
+  {
+    "name": "1С-Битрикс",
+    "html": [
+      "/bitrix/"
+    ]
+  },
+  {
+    "name": "Joomla",
+    "html": [
+      "/media/jui/"
+    ],
+    "generator": [
+      "^Joomla"
+    ]
+  },
+  {
+    "name": "Nethouse",
+    "html": [
+      "nethouse\\."
+    ]
+  },
+  {
+    "name": "Craftum",
+    "html": [
+      "craftum\\."
+    ]
+  },
+  {
+    "name": "uKit",
+    "html": [
+      "ukit\\."
+    ]
+  },
+  {
+    "name": "Flexbe",
+    "html": [
+      "flexbe\\."
+    ]
+  },
+  {
+    "name": "Taplink",
+    "html": [
+      "taplink\\."
+    ]
+  }
 ]

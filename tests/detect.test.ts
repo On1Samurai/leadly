@@ -20,6 +20,13 @@ describe('detectCms', () => {
   it('wix by header', () => expect(detectCms('<html></html>', { 'X-Wix-Request-Id': '1' })).toBe('Wix'))
 })
 
+describe('detectCms false positives', () => {
+  it('a href alone', () => expect(detectCms('<a href="https://taplink.cc/x">x</a>', {})).toBeNull())
+  it('text alone', () => expect(detectCms('<p>Сделано на uKit и Flexbe</p>', {})).toBeNull())
+  it('img src', () => expect(detectCms('<img src="https://static.tildacdn.com/x.jpg">', {})).toBe('Tilda'))
+  it('generator', () => expect(detectCms('<meta content="WordPress 6" name="generator">', {})).toBe('WordPress'))
+})
+
 describe('footerYear', () => {
   it('range', () => expect(footerYear('© 2015–2019 Ромашка')).toBe(2019))
   it('copy entity', () => expect(footerYear('&copy; 2017')).toBe(2017))
@@ -27,6 +34,7 @@ describe('footerYear', () => {
 })
 
 describe('hasMenuOrPrices', () => {
+  it.each(['Стоимость услуг', '500 р', '500 р.', '12 $'])('%s', (s) => expect(hasMenuOrPrices(s)).toBe(true))
   it('menu fixture', () => expect(hasMenuOrPrices(fx('menu'))).toBe(true))
   it('BYN', () => expect(hasMenuOrPrices('Цены: 12 BYN')).toBe(true))
   it('none', () => expect(hasMenuOrPrices('Добро пожаловать')).toBe(false))
@@ -54,7 +62,16 @@ describe('detect', () => {
     expect(ev('broken_links')).toBe('битых ссылок: 2')
   })
   it('no_menu_prices', () => {
-    expect(detect(base({ checkMenu: true }), now).find((f) => f.code === 'no_menu_prices')?.evidence).toBe('нет меню и цен')
+    expect(detect(base({ checkMenu: true, text: 'а'.repeat(250) }), now).find((f) => f.code === 'no_menu_prices')?.evidence).toBe('нет меню и цен')
+  })
+  it('no_menu_prices needs enough text', () => {
+    expect(codes(base({ checkMenu: true, text: '' }))).not.toContain('no_menu_prices')
+    expect(codes(base({ checkMenu: true, text: 'а'.repeat(199) }))).not.toContain('no_menu_prices')
+    expect(codes(base({ checkMenu: true, text: 'а'.repeat(200) }))).toContain('no_menu_prices')
+  })
+  it('cert days floor', () => {
+    const r = detect(base({ cert: { valid: true, validTo: now.getTime() + 13.9 * 86400000 } }), now)
+    expect(r.find((f) => f.code === 'cert_expiring')?.evidence).toBe('сертификат истекает через 13 дн.')
   })
   it('pdf gives only site-level', () => {
     expect(codes(base({ contentType: 'application/pdf', httpsOk: false }))).toEqual(['no_https'])
