@@ -59,3 +59,16 @@ describe('contactFromUrl', () => {
     expect(contactFromUrl('https://example.com/x')).toBeNull()
   })
 })
+
+describe('contactFromUrl handle safety', () => {
+  it('rejects invalid handles and malformed encoding', () => {
+    for (const bad of ['foo%3Fx', 'a%2Fb', 'a%23b', 'a%20b', '%20']) {
+      expect(contactFromUrl(`https://instagram.com/${bad}`)).toBeNull()
+      expect(contactFromUrl(`https://t.me/${bad}`)).toBeNull()
+      expect(contactFromUrl(`https://vk.com/${bad}`)).toBeNull()
+    }
+    expect(() => contactFromUrl('https://instagram.com/%zz')).not.toThrow()
+    expect(contactFromUrl('https://instagram.com/%zz')).toBeNull()
+    expect(contactFromUrl('https://instagram.com/a.b_c')).toEqual({ kind: 'instagram', value: 'a.b_c' })
+  })
+})

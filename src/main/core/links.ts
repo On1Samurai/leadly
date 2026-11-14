@@ -4,6 +4,10 @@ import { hostOf } from './webclass'
 const IG_SKIP = new Set(['p', 'reel', 'reels', 'explore', 'stories', 'accounts', 'tv', 'direct'])
 const VK_SKIP = new Set(['share.php', 'away.php', 'feed', 'login', 'wall'])
 
+export function isValidHandle(h: string): boolean {
+  return /^[A-Za-z0-9_.]{1,64}$/.test(h)
+}
+
 export function contactFromUrl(url: string): Contact | null {
   const host = hostOf(url)
   if (!host) return null
@@ -14,17 +18,22 @@ export function contactFromUrl(url: string): Contact | null {
     return null
   }
   const seg = u.pathname.split('/').filter(Boolean)
-  const first = seg[0] ? decodeURIComponent(seg[0]).replace(/^@/, '') : ''
+  let first = ''
+  try {
+    first = seg[0] ? decodeURIComponent(seg[0]).replace(/^@/, '') : ''
+  } catch {
+    return null
+  }
   if (host === 'instagram.com' || host === 'instagr.am') {
-    if (!first || IG_SKIP.has(first.toLowerCase())) return null
+    if (!isValidHandle(first) || IG_SKIP.has(first.toLowerCase())) return null
     return { kind: 'instagram', value: first }
   }
   if (host === 't.me' || host === 'telegram.me') {
-    if (!first || first.startsWith('+') || ['joinchat', 'share', 'addstickers', 's'].includes(first)) return null
+    if (!isValidHandle(first) || ['joinchat', 'share', 'addstickers', 's'].includes(first)) return null
     return { kind: 'telegram', value: first }
   }
   if (host === 'vk.com' || host === 'vk.ru' || host === 'm.vk.com') {
-    if (!first || VK_SKIP.has(first)) return null
+    if (!isValidHandle(first) || VK_SKIP.has(first)) return null
     return { kind: 'vk', value: first }
   }
   if (host === 'wa.me') {
@@ -66,9 +75,11 @@ export function buildLink(
   const phone = to.phoneE164
   const digits = phone?.replace(/\D/g, '')
   const handle = to.handle?.replace(/^@/, '')
+  const badHandle = handle !== undefined && handle !== '' && !isValidHandle(handle)
   const enc = encodeURIComponent
   switch (ch) {
     case 'telegram':
+      if (badHandle) return null
       if (handle) return { url: `https://t.me/${handle}`, prefilled: false }
       return digits ? { url: `https://t.me/+${digits}`, prefilled: false } : null
     case 'whatsapp':
@@ -76,9 +87,9 @@ export function buildLink(
     case 'viber':
       return digits ? { url: `viber://chat?number=%2B${digits}`, prefilled: false } : null
     case 'instagram':
-      return handle ? { url: `https://ig.me/m/${handle}`, prefilled: false } : null
+      return handle && !badHandle ? { url: `https://ig.me/m/${handle}`, prefilled: false } : null
     case 'vk':
-      return handle ? { url: `https://vk.me/${handle}`, prefilled: false } : null
+      return handle && !badHandle ? { url: `https://vk.me/${handle}`, prefilled: false } : null
     case 'call':
       return digits ? { url: `tel:+${digits}`, prefilled: false } : null
     case 'sms':

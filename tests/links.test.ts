@@ -50,3 +50,14 @@ describe('channelsFor', () => {
     expect(channelsFor('BY', [{ kind: 'telegram', value: 'a' }], null, 'unknown')).toEqual(['telegram'])
   })
 })
+
+describe('buildLink handle safety', () => {
+  it('null for invalid handles, ok for valid', () => {
+    for (const ch of ['telegram', 'instagram', 'vk'] as const) {
+      for (const bad of ['foo?x=1', 'a/b', 'a#b', 'a b', '  ']) {
+        expect(buildLink(ch, { handle: bad }, 'x')).toBeNull()
+      }
+    }
+    expect(buildLink('instagram', { handle: 'a.b_c' }, 'x')?.url).toBe('https://ig.me/m/a.b_c')
+  })
+})
