@@ -1,1 +1,26 @@
-{}
+{
+  "default": { "alpha": 2, "beta": 18 },
+  "categories": {
+    "cafe": { "alpha": 2, "beta": 18 },
+    "restaurant": { "alpha": 2, "beta": 18 },
+    "bar": { "alpha": 2, "beta": 18 },
+    "coffee": { "alpha": 2, "beta": 18 },
+    "delivery": { "alpha": 2, "beta": 18 },
+    "barber": { "alpha": 3, "beta": 17 },
+    "hair": { "alpha": 3, "beta": 17 },
+    "nails": { "alpha": 3, "beta": 17 },
+    "beauty": { "alpha": 3, "beta": 17 },
+    "car_wash": { "alpha": 2, "beta": 18 },
+    "car_service": { "alpha": 2, "beta": 18 },
+    "dentist": { "alpha": 2, "beta": 18 },
+    "fitness": { "alpha": 2, "beta": 18 },
+    "flowers": { "alpha": 3, "beta": 17 },
+    "bakery": { "alpha": 2, "beta": 18 },
+    "b2b": { "alpha": 1, "beta": 19 }
+  },
+  "weights": {
+    "web_none": 0.6, "web_social": 0.4, "web_template": 0.3,
+    "phone_mobile": 0.4, "phone_fixed": -0.4,
+    "reviews_lt10": -0.3, "reviews_gt100": 0.2, "rating_lt4": 0.2
+  }
+}
