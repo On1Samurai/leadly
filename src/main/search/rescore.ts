@@ -37,7 +37,7 @@ export function rescore(db: Db, priors: Priors, scope: { categoryId: string; cit
         { webClass: r.webClass, phoneType: r.phoneType, reviews: r.reviews, rating: r.rating },
         prior, hist, priors.weights, priors.default
       )
-      upd.run(s.display, s.reason, r.id)
+      upd.run(Math.round(s.p * 1000) / 10, s.reason, r.id)
     }
   })()
 }

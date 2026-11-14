@@ -6,7 +6,7 @@ import { openDb, type Db } from '../src/main/db/db'
 import { runPass, upsertRaw, type PassDeps, type PassEvent, type PassParams, type PassControl } from '../src/main/search/pass'
 import { rescore } from '../src/main/search/rescore'
 import { setStatus } from '../src/main/db/repo'
-import { GoogleAuthError, type GoogleClient } from '../src/main/sources/google'
+import { GoogleAuthError, GoogleTransientError, type GoogleClient } from '../src/main/sources/google'
 import { OverpassUnavailable } from '../src/main/sources/osm'
 import type { Category, RawPlace } from '../src/shared/types'
 import type { Priors } from '../src/main/core/scoring'
@@ -147,6 +147,39 @@ describe('runPass', () => {
     await expect(runPass(s.deps, params, ctl())).rejects.toThrow('boom')
     const row = db.prepare('SELECT finished_at f FROM passes').get() as { f: number | null }
     expect(row.f).not.toBeNull()
+  })
+})
+
+describe('google_yield', () => {
+  const yieldOf = () => (db.prepare('SELECT google_yield g FROM cells WHERE ix=0 AND iy=0').get() as { g: number | null }).g
+  it('only duplicates gives yield 0 and no further calls', async () => {
+    const osm = many('osm', 0, 0, 3)
+    const s = setup(osm, async () => ({ places: osm }))
+    await runPass(s.deps, params, ctl())
+    expect(yieldOf()).toBe(0)
+    db.prepare('UPDATE cells SET osm_count=0').run()
+    s.c.google = 0
+    // OSM из кэша вернёт 3 места, поэтому osm_count снова 3; убираем кэш-эффект порогом
+    await runPass(s.deps, { ...params, densityThreshold: 99 }, ctl())
+    expect(s.c.google).toBe(0)
+  })
+
+  it('transient error keeps prior yield', async () => {
+    const s = setup(many('osm', 0, 0, 3), async () => { throw new GoogleTransientError('x') })
+    await runPass(s.deps, params, ctl()) // создаёт cells
+    db.prepare('UPDATE cells SET google_yield=7 WHERE ix=0 AND iy=0').run()
+    await runPass(s.deps, params, ctl())
+    expect(yieldOf()).toBe(7)
+  })
+
+  it('score stored as percent with 1 decimal', () => {
+    upsertRaw(db, raw('osm', 0, 0, 0), { country: 'UA', cityId: 1, cellId: null, categoryId: 'cafe', now: 5 })
+    rescore(db, priors, { categoryId: 'cafe', cityId: 1 }, 10)
+    const sc = (db.prepare('SELECT score FROM places').get() as { score: number }).score
+    // prior 1/10, веса: web_none 0.5 -> logit(0.1)+0.5
+    const p = 1 / (1 + Math.exp(-(Math.log(0.1 / 0.9) + 0.5)))
+    expect(sc).toBe(Math.round(p * 1000) / 10)
+    expect(sc * 10).not.toBe(Math.round(sc / 5) * 50)
   })
 })
 

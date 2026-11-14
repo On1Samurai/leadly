@@ -106,7 +106,8 @@ export async function runPass(deps: PassDeps, p: PassParams, ctl: PassControl): 
       const tl = t(cell.id)
       if (googleOn && (cell.osmCount >= p.densityThreshold || (cell.googleYield ?? 0) > 0 || random)) {
         let token: string | undefined
-        let found = 0
+        let newG = 0
+        let ok = false
         try {
           for (;;) {
             if (sum.googleUsed >= p.budget) { googleOn = false; break }
@@ -115,7 +116,7 @@ export async function runPass(deps: PassDeps, p: PassParams, ctl: PassControl): 
             try {
               page = await deps.google!.search(JSON.parse(cell.bbox) as BBox, cat, p.lang, token)
             } catch (e) {
-              if (e instanceof BudgetExhausted) sum.googleUsed--
+              if (e instanceof BudgetExhausted) { sum.googleUsed--; tl.g-- }
               throw e
             }
             let fresh = 0
@@ -124,7 +125,8 @@ export async function runPass(deps: PassDeps, p: PassParams, ctl: PassControl): 
               add(raw)
               if (sum.newCount > before) fresh++
             }
-            found += page.places.length
+            ok = true
+            newG += fresh
             token = page.nextPageToken
             if (!token || fresh < p.nextPageThreshold) break
           }
@@ -135,9 +137,9 @@ export async function runPass(deps: PassDeps, p: PassParams, ctl: PassControl): 
             deps.emit({ type: 'warning', text: 'Google не принял ключ — проверьте его в настройках' })
           } else if (!(e instanceof GoogleTransientError)) throw e
         }
-        if (tl.g > 0) {
-          cell.googleYield = found
-          db.prepare('UPDATE cells SET google_yield=?, last_google_at=? WHERE id=?').run(found, deps.now(), cell.id)
+        if (ok) {
+          cell.googleYield = newG
+          db.prepare('UPDATE cells SET google_yield=?, last_google_at=? WHERE id=?').run(newG, deps.now(), cell.id)
         }
       }
       db.prepare("INSERT INTO pass_cells(pass_id,cell_id,state,new_count,dup_count,google_requests) VALUES (?,?,'done',?,?,?)")
