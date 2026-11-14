@@ -8,6 +8,7 @@ import { passHandlers } from './pass'
 import { placesHandlers, toView } from './places'
 import type { TodayView } from '../../shared/ipc'
 import type { Place } from '../../shared/types'
+import { computeMission } from '../../shared/mission'
 import { getPlace } from '../db/repo'
 
 export type { IpcDeps } from './define'
@@ -59,6 +60,16 @@ export function createIpc(d: IpcDeps): { handlers: Record<ChannelName, Fn>; isPa
     return { goal: s.dailyGoal, written, remindToday, replied, leftToday: Math.max(0, s.dailyGoal - written) }
   })
 
+  define(t, 'mission.get', () => {
+    const n = (sql: string): number => (db.prepare(sql).get() as { n: number }).n
+    return computeMission({
+      cities: n('SELECT COUNT(*) AS n FROM cities'),
+      places: n('SELECT COUNT(*) AS n FROM places'),
+      inBase: n('SELECT COUNT(*) AS n FROM places WHERE in_base=1'),
+      written: n("SELECT COUNT(DISTINCT place_id) AS n FROM status_log WHERE to_status='written'")
+    })
+  })
+
   define(t, 'backup.export', async () => {
     const dest = await d.saveDialog(`local-leads-${new Date(d.now()).toISOString().slice(0, 10)}.db`)
     if (!dest) return null
@@ -66,8 +77,8 @@ export function createIpc(d: IpcDeps): { handlers: Record<ChannelName, Fn>; isPa
     return dest
   })
 
-  // заглушки: mission.get (Задача 13), write.* (Задача 16), bot.* (Задача 18)
-  for (const n of ['mission.get', 'write.open', 'write.confirm', 'bot.bindCode', 'bot.status'] as const) stub(t, n)
+  // заглушки: write.* (Задача 16), bot.* (Задача 18)
+  for (const n of ['write.open', 'write.confirm', 'bot.bindCode', 'bot.status'] as const) stub(t, n)
 
   return { handlers: t as Record<ChannelName, Fn>, isPassRunning: pass.isRunning }
 }

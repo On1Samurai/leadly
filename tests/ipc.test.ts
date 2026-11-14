@@ -115,6 +115,20 @@ describe('ipc', () => {
     await expect(h['write.confirm']({} as never, 1, 'call', 'x')).rejects.toThrow('not_implemented')
   })
 
+  it('mission.get считает шаг по БД', async () => {
+    const h = buildHandlers(mkDeps(env()))
+    const ev = {} as never
+    expect(await h['mission.get'](ev)).toBe(1)
+    db.prepare("INSERT INTO cities(name,country,bbox,polygon,created_at) VALUES ('Т','RU','[0,0,1,1]',NULL,1)").run()
+    expect(await h['mission.get'](ev)).toBe(2)
+    for (let i = 0; i < 20; i++) insertPlace(db, mkPlace({ name: `P${i}` }))
+    expect(await h['mission.get'](ev)).toBe(3)
+    db.prepare('UPDATE places SET in_base=1 WHERE id=1').run()
+    expect(await h['mission.get'](ev)).toBe(4)
+    db.prepare("INSERT INTO status_log(place_id,from_status,to_status,at) VALUES (1,'new','written',5)").run()
+    expect(await h['mission.get'](ev)).toBe('done')
+  })
+
   const mkPlace = (over: Partial<Omit<Place, 'id'>> = {}): Omit<Place, 'id'> => ({
     name: 'P', category: 'cafe', lat: 0, lon: 0, address: null, cityId: 1, cellId: null, phoneE164: null,
     phoneType: 'unknown', website: null, webClass: 'none', rating: null, reviews: null, googlePlaceId: null,
