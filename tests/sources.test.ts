@@ -48,6 +48,21 @@ describe('overpass', () => {
     expect(f).toHaveBeenCalledTimes(2)
     expect(sleep).toHaveBeenCalledWith(10000)
   })
+  it('503 twice, fetch rejects twice, bad json, 400', async () => {
+    const sleep = vi.fn(async () => {})
+    const f1 = vi.fn(async () => res(503))
+    await expect(fetchOverpass('q', f1 as unknown as typeof fetch, sleep)).rejects.toBeInstanceOf(OverpassUnavailable)
+    expect(f1).toHaveBeenCalledTimes(2)
+    const f2 = vi.fn(async () => { throw new TypeError('fetch failed') })
+    await expect(fetchOverpass('q', f2 as unknown as typeof fetch, sleep)).rejects.toMatchObject({ cause: expect.any(TypeError) })
+    expect(f2).toHaveBeenCalledTimes(2)
+    const f3 = vi.fn(async () => new Response('<html>', { status: 200 }))
+    await expect(fetchOverpass('q', f3 as unknown as typeof fetch, sleep)).rejects.toBeInstanceOf(OverpassUnavailable)
+    expect(f3).toHaveBeenCalledTimes(1)
+    const f4 = vi.fn(async () => res(400))
+    await expect(fetchOverpass('q', f4 as unknown as typeof fetch, sleep)).rejects.toThrow(/400/)
+    expect(f4).toHaveBeenCalledTimes(1)
+  })
   it('retry success', async () => {
     const f = vi.fn().mockResolvedValueOnce(res(429)).mockResolvedValueOnce(res(200, { elements: [] }))
     const r = await fetchOverpass('q', f as unknown as typeof fetch, async () => {})
@@ -107,6 +122,12 @@ describe('google', () => {
     await expect(mk(503).details('x')).rejects.toBeInstanceOf(GoogleTransientError)
     const net = new GoogleClient('SECRETKEY', new Budget(9), (async () => { throw new Error('boom SECRETKEY') }) as unknown as typeof fetch)
     await expect(net.search(bbox, cafe, 'ru')).rejects.toSatisfy((e: Error) => e instanceof GoogleTransientError && !e.message.includes('SECRETKEY'))
+  })
+  it('google 200 invalid json -> transient', async () => {
+    const f = (async () => new Response('nope', { status: 200 })) as unknown as typeof fetch
+    const g = new GoogleClient('K', new Budget(9), f)
+    await expect(g.search(bbox, cafe, 'ru')).rejects.toBeInstanceOf(GoogleTransientError)
+    await expect(g.details('x')).rejects.toBeInstanceOf(GoogleTransientError)
   })
   it('details', async () => {
     const f = vi.fn(async () => res(200, fx('google-text-search.json') && { id: 'g1', displayName: { text: 'A' }, location: { latitude: 1, longitude: 2 } }))

@@ -78,7 +78,13 @@ export class GoogleClient {
     } catch {
       throw new GoogleTransientError('Google Places: сетевая ошибка')
     }
-    if (res.ok) return res.json()
+    if (res.ok) {
+      try {
+        return await res.json()
+      } catch (e) {
+        throw new GoogleTransientError('Google Places: invalid JSON response', { cause: e })
+      }
+    }
     if ([400, 401, 403].includes(res.status)) throw new GoogleAuthError(`Google Places: HTTP ${res.status}, проверьте ключ`)
     throw new GoogleTransientError(`Google Places: HTTP ${res.status}`)
   }

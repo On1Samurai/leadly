@@ -63,18 +63,38 @@ export function parseOverpass(json: unknown): RawPlace[] {
 
 export class OverpassUnavailable extends Error {}
 
+const RETRYABLE = new Set([429, 502, 503, 504])
+
 export async function fetchOverpass(
   query: string, fetchFn: FetchFn = fetch, sleep: SleepFn = realSleep
 ): Promise<unknown> {
+  let last = 'unknown'
+  let cause: unknown
   for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetchFn('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `data=${encodeURIComponent(query)}`
-    })
-    if (res.ok) return res.json()
-    if (res.status !== 429 && res.status !== 504) throw new Error(`Overpass HTTP ${res.status}`)
+    let res: Response | undefined
+    try {
+      res = await fetchFn('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `data=${encodeURIComponent(query)}`
+      })
+    } catch (e) {
+      cause = e
+      last = 'network error'
+    }
+    if (res) {
+      if (res.ok) {
+        try {
+          return await res.json()
+        } catch (e) {
+          throw new OverpassUnavailable('Overpass: invalid JSON response', { cause: e })
+        }
+      }
+      last = `HTTP ${res.status}`
+      cause = undefined
+      if (!RETRYABLE.has(res.status)) throw new OverpassUnavailable(`Overpass ${last}`)
+    }
     if (attempt === 0) await sleep(10000)
   }
-  throw new OverpassUnavailable('Overpass недоступен (429/504)')
+  throw new OverpassUnavailable(`Overpass unavailable (${last})`, { cause })
 }
