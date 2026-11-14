@@ -15,6 +15,12 @@ function steps(bbox: BBox, sizeKm: number) {
   return { dLat, dLon, nx, ny }
 }
 
+/** Число квадратов сетки без её построения. */
+export function cellCount(bbox: BBox, sizeKm: number): number {
+  const { nx, ny } = steps(bbox, sizeKm)
+  return nx * ny
+}
+
 export function makeGrid(bbox: BBox, sizeKm: number, polygon?: GeoPolygon | GeoMultiPolygon): GridCell[] {
   const { dLat, dLon, nx, ny } = steps(bbox, sizeKm)
   const cells: GridCell[] = []

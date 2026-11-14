@@ -31,11 +31,6 @@ export const SettingsPatchSchema = z.object({
 
 const status = z.enum(STATUSES)
 const channel = z.enum(CHANNEL_IDS)
-const bbox = z.object({ south: z.number().min(-90).max(90), west: z.number().min(-180).max(180), north: z.number().min(-90).max(90), east: z.number().min(-180).max(180) })
-const polygon = z.union([
-  z.object({ type: z.literal('Polygon'), coordinates: z.array(z.array(z.array(z.number()))) }),
-  z.object({ type: z.literal('MultiPolygon'), coordinates: z.array(z.array(z.array(z.array(z.number())))) })
-])
 
 const none = z.tuple([])
 export const ARGS = {
@@ -44,7 +39,7 @@ export const ARGS = {
   'secrets.set': z.tuple([z.enum(['anthropic', 'google', 'telegram']), z.string().max(2000)]),
   'secrets.has': none,
   'city.search': z.tuple([z.string().trim().min(1).max(200)]),
-  'city.save': z.tuple([z.object({ name: z.string().max(300), displayName: z.string().max(1000), bbox, polygon: polygon.nullable() })]),
+  'city.save': z.tuple([z.object({ id: z.string().min(1).max(100) }).strict()]),
   'city.list': none,
   'pass.start': z.tuple([z.object({ cityId: id, categoryId: z.string().min(1).max(64) })]),
   'pass.pause': none, 'pass.resume': none, 'pass.stop': none,

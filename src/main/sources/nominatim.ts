@@ -39,5 +39,5 @@ export async function searchCity(q: string, country: string, fetchFn: FetchFn = 
     const t = i.geojson?.type
     const polygon = t === 'Polygon' || t === 'MultiPolygon' ? (i.geojson as GeoPolygon | GeoMultiPolygon) : null
     return { name: i.name ?? '', displayName: i.display_name ?? '', bbox: { south, west, north, east }, polygon }
-  })
+  }).filter((h) => h.bbox.south < h.bbox.north && h.bbox.west < h.bbox.east)
 }

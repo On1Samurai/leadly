@@ -1,6 +1,6 @@
 import type { Db } from '../db/db'
 import type { BBox, Category, RawPlace } from '../../shared/types'
-import { cellIndexOf, makeGrid, orderCellsFlagged } from '../core/grid'
+import { cellCount, cellIndexOf, makeGrid, orderCellsFlagged } from '../core/grid'
 import type { GeoMultiPolygon, GeoPolygon } from '../core/geo'
 import type { Priors } from '../core/scoring'
 import { BudgetExhausted, GoogleAuthError, GoogleTransientError, type GoogleClient } from '../sources/google'
@@ -30,10 +30,13 @@ const OSM_TTL = 7 * 86_400_000
 interface CellRow { id: number; ix: number; iy: number; bbox: string; osmCount: number; googleYield: number | null }
 interface Tally { n: number; d: number; g: number }
 
-function ensureCells(db: Db, cityId: number, sizeKm: number): void {
+export const MAX_CELLS = 2500
+
+export function ensureCells(db: Db, cityId: number, sizeKm: number): void {
   const has = db.prepare('SELECT 1 FROM cells WHERE city_id=? LIMIT 1').get(cityId)
   if (has) return
   const c = db.prepare('SELECT bbox, polygon FROM cities WHERE id=?').get(cityId) as { bbox: string; polygon: string | null }
+  if (cellCount(JSON.parse(c.bbox) as BBox, sizeKm) > MAX_CELLS) throw new Error('city_too_large')
   const grid = makeGrid(JSON.parse(c.bbox) as BBox, sizeKm, c.polygon ? (JSON.parse(c.polygon) as GeoPolygon | GeoMultiPolygon) : undefined)
   const ins = db.prepare('INSERT INTO cells(city_id,ix,iy,bbox) VALUES (?,?,?,?)')
   db.transaction(() => { for (const g of grid) ins.run(cityId, g.ix, g.iy, JSON.stringify(g.bbox)) })()

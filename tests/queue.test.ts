@@ -60,3 +60,14 @@ describe('AuditQueue dedupe', () => {
     expect(runs).toEqual([1, 2, 1])
   })
 })
+
+describe('AuditQueue onIdle', () => {
+  it('fires when the queue drains', async () => {
+    let n = 0
+    const q = new AuditQueue(1, async () => { await new Promise((r) => setTimeout(r, 5)) })
+    q.onIdle = () => { n++ }
+    q.push(1); q.push(2)
+    await q.idle()
+    expect(n).toBe(1)
+  })
+})

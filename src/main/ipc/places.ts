@@ -28,7 +28,7 @@ const cityName = (db: Db, id: number): string =>
 
 export function inputFor(db: Db, p: Place, s: AppSettings, tone: Tone = s.tone): MessageInput {
   const sells = [...s.sells, s.custom].map((x) => x.trim()).filter(Boolean).join(', ')
-  return buildMessageInput(p, cityName(db, p.cityId), latestFindings(db, p.id), { sells, tone, lang: s.lang, mode: 'local' })
+  return buildMessageInput(p, cityName(db, p.cityId), latestFindings(db, p.id), { sells, tone, lang: s.lang, mode: p.category === 'b2b' ? 'b2b' : 'local' })
 }
 
 export const toView = (db: Db, p: Place, s: AppSettings): PlaceView =>
@@ -39,6 +39,9 @@ function need(db: Db, id: number): Place {
   if (!p) throw new Error('not_found')
   return p
 }
+
+const insideShots = (userDataDir: string, f: string): boolean =>
+  resolve(f).startsWith(resolve(userDataDir, 'screenshots') + sep)
 
 export function placesHandlers(t: Table, d: IpcDeps): void {
   const { db } = d
@@ -92,6 +95,7 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
 
   define(t, 'places.remove', (_e, id) => {
     for (const f of deletePlaceForever(db, id)) {
+      if (!insideShots(d.userDataDir, f)) continue
       try { unlinkSync(f) } catch { /* файла нет */ }
     }
   })
@@ -113,7 +117,7 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
       .get(id) as { screenshot: string } | undefined
     if (!r) return null
     const file = resolve(r.screenshot)
-    if (!file.startsWith(resolve(d.userDataDir) + sep)) return null
+    if (!insideShots(d.userDataDir, file)) return null
     try { return `data:image/png;base64,${readFileSync(file).toString('base64')}` } catch { return null }
   })
 }

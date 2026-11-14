@@ -46,11 +46,13 @@ app.whenReady().then(() => {
   db = conn
   const queue = new AuditQueue(2, makeAuditWorker(conn, userDataDir, (url, opts) => runAudit(url, opts)))
   auditQueue = queue
+  queue.onIdle = maybeQuit
   passRunning = registerIpc({
     db: conn,
     secretEnv: { safeStorage, isDev: !app.isPackaged, env: process.env },
     userDataDir,
     auditQueue: queue,
+    onPassEnd: maybeQuit,
     now: Date.now,
     rng: Math.random,
     osm: (bbox, cat) => fetchOverpass(buildOverpassQuery(bbox, cat)).then(parseOverpass),
@@ -66,10 +68,13 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('window-all-closed', () => {
-  // проход или аудиты ещё идут: не выходим (трей добавит Задача 18); выйдем, когда всё закончится
+// Выходим, только когда окон нет, платформа не darwin и работа (проход, аудиты) закончилась. Трей добавит Задача 18.
+function maybeQuit(): void {
+  if (process.platform === 'darwin' || BrowserWindow.getAllWindows().length > 0) return
   if (passRunning() || (auditQueue?.size() ?? 0) > 0) return
-  if (process.platform !== 'darwin') app.quit()
-})
+  app.quit()
+}
+
+app.on('window-all-closed', maybeQuit)
 
 app.on('before-quit', () => { db?.close(); db = null })

@@ -1,4 +1,5 @@
-import type { ChannelName } from '../../shared/ipc'
+import { randomUUID } from 'node:crypto'
+import type { ChannelName, CityHit } from '../../shared/ipc'
 import { hasSecret, SECRET_NAMES, setSecret } from '../secrets'
 import { loadSettings, saveSettings } from '../settings'
 import { searchCity } from '../sources/nominatim'
@@ -24,10 +25,20 @@ export function createIpc(d: IpcDeps): { handlers: Record<ChannelName, Fn>; isPa
   define(t, 'secrets.set', (_e, name, value) => setSecret(db, name, value, d.secretEnv))
   define(t, 'secrets.has', () => Object.fromEntries(SECRET_NAMES.map((n) => [n, hasSecret(db, n, d.secretEnv)])))
 
-  define(t, 'city.search', (_e, q) => searchCity(q, loadSettings(db).country))
-  define(t, 'city.save', (_e, hit) => Number(db.prepare('INSERT INTO cities(name,country,bbox,polygon,created_at) VALUES (?,?,?,?,?)')
-    .run(hit.name || hit.displayName, loadSettings(db).country, JSON.stringify(hit.bbox),
-      hit.polygon ? JSON.stringify(hit.polygon) : null, d.now()).lastInsertRowid))
+  // геометрию города renderer не присылает: хиты живут в main, save получает только id
+  let hits = new Map<string, CityHit>()
+  define(t, 'city.search', async (_e, q) => {
+    const found = await searchCity(q, loadSettings(db).country)
+    hits = new Map()
+    return found.map((h) => { const hit: CityHit = { id: randomUUID(), ...h }; hits.set(hit.id, hit); return hit })
+  })
+  define(t, 'city.save', (_e, { id }) => {
+    const hit = hits.get(id)
+    if (!hit) throw new Error('unknown_city')
+    return Number(db.prepare('INSERT INTO cities(name,country,bbox,polygon,created_at) VALUES (?,?,?,?,?)')
+      .run(hit.name || hit.displayName, loadSettings(db).country, JSON.stringify(hit.bbox),
+        hit.polygon ? JSON.stringify(hit.polygon) : null, d.now()).lastInsertRowid)
+  })
   define(t, 'city.list', () => db.prepare('SELECT id, name FROM cities ORDER BY id').all())
 
   const pass = passHandlers(t, d)

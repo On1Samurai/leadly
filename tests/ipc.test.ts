@@ -10,6 +10,12 @@ import { DEFAULT_SETTINGS } from '../src/shared/settings'
 import { SettingsPatchSchema } from '../src/main/ipc/schemas'
 import { buildHandlers, type IpcDeps } from '../src/main/ipc/handlers'
 import { AuditQueue } from '../src/main/audit/queue'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { inputFor } from '../src/main/ipc/places'
+import { ensureCells } from '../src/main/search/pass'
+import { searchCity } from '../src/main/sources/nominatim'
+import { getPlace, insertPlace } from '../src/main/db/repo'
+import type { Place } from '../src/shared/types'
 
 const fakeSafe = (available = true): SecretEnv['safeStorage'] => ({
   isEncryptionAvailable: () => available,
@@ -107,5 +113,73 @@ describe('ipc', () => {
     const h = buildHandlers(mkDeps(env()))
     await expect(h['bot.status']({} as never)).rejects.toThrow('not_implemented')
     await expect(h['write.confirm']({} as never, 1, 'call', 'x')).rejects.toThrow('not_implemented')
+  })
+
+  const mkPlace = (over: Partial<Omit<Place, 'id'>> = {}): Omit<Place, 'id'> => ({
+    name: 'P', category: 'cafe', lat: 0, lon: 0, address: null, cityId: 1, cellId: null, phoneE164: null,
+    phoneType: 'unknown', website: null, webClass: 'none', rating: null, reviews: null, googlePlaceId: null,
+    osmId: null, googleFetchedAt: null, status: 'new', inBase: false, remindAt: null, score: 0, scoreReason: '',
+    createdAt: 0, ...over })
+  const bbox0 = '{"south":0,"west":0,"north":0.01,"east":0.01}'
+  const addCity = (bbox = bbox0): void => { db.prepare('INSERT INTO cities(id,name,country,bbox,created_at) VALUES (1,?,?,?,0)').run('T', 'UA', bbox) }
+
+  it('b2b place without site gets scenario offer, others no_site', () => {
+    addCity()
+    const s = loadSettings(db)
+    const b2b = getPlace(db, insertPlace(db, mkPlace({ category: 'b2b' })))!
+    const cafe = getPlace(db, insertPlace(db, mkPlace()))!
+    expect(inputFor(db, b2b, s).scenario).toBe('offer')
+    expect(inputFor(db, cafe, s).scenario).toBe('no_site')
+  })
+
+  it('city.save accepts only ids returned by search', async () => {
+    const h = buildHandlers(mkDeps(env()))
+    await expect(h['city.save']({} as never, { id: 'nope' })).rejects.toThrow('unknown_city')
+    await expect(h['city.save']({} as never, { id: 'x', bbox: {} })).rejects.toThrow('bad_args')
+  })
+
+  it('searchCity drops degenerate bboxes', async () => {
+    const fetchFn = (async () => new Response(JSON.stringify([
+      { name: 'a', boundingbox: ['1', '1', '2', '3'] }, { name: 'b', boundingbox: ['1', '2', '2', '3'], x: 1 }
+    ]))) as unknown as typeof fetch
+    const r = await searchCity('x', 'RU', fetchFn)
+    expect(r.map((x) => x.name)).toEqual(['b'])
+  })
+
+  it('ensureCells rejects country-sized city fast, accepts normal city', () => {
+    addCity('{"south":40,"west":20,"north":70,"east":180}')
+    const t0 = Date.now()
+    expect(() => ensureCells(db, 1, 0.5)).toThrow('city_too_large')
+    expect(Date.now() - t0).toBeLessThan(200)
+    expect(db.prepare('SELECT COUNT(*) n FROM cells').get()).toEqual({ n: 0 })
+    db.prepare('UPDATE cities SET bbox=? WHERE id=1').run(bbox0)
+    ensureCells(db, 1, 1)
+    expect((db.prepare('SELECT COUNT(*) n FROM cells').get() as { n: number }).n).toBeGreaterThan(0)
+  })
+
+  it('failed pass still emits warning then done(stopped)', async () => {
+    addCity('{"south":40,"west":20,"north":70,"east":180}')
+    let ended = 0
+    const h = buildHandlers({ ...mkDeps(env()), onPassEnd: () => { ended++ } })
+    const ev = { sender: { send: (_c: string, e: unknown) => { events.push(e) } } } as never
+    await h['pass.start'](ev, { cityId: 1, categoryId: 'cafe' })
+    for (let i = 0; i < 100 && !ended; i++) await new Promise((r) => setTimeout(r, 20))
+    const types = events.map((e) => (e as { type: string }).type)
+    expect(types).toEqual(['warning', 'done'])
+    expect((events[1] as { summary: { stopped: boolean } }).summary.stopped).toBe(true)
+  })
+
+  it('places.remove unlinks only files inside userData/screenshots', async () => {
+    addCity()
+    mkdirSync(join(dir, 'screenshots'))
+    const inside = join(dir, 'screenshots', '1.png'), outside = join(dir, 'precious.txt')
+    writeFileSync(inside, 'x'); writeFileSync(outside, 'x')
+    const id = insertPlace(db, mkPlace())
+    const ins = db.prepare('INSERT INTO audits(place_id,url,ran_at,screenshot) VALUES (?,?,?,?)')
+    ins.run(id, 'u', 1, inside); ins.run(id, 'u', 2, outside); ins.run(id, 'u', 3, join(dir, 'screenshots', '..', 'precious.txt'))
+    const h = buildHandlers(mkDeps(env()))
+    await h['places.remove']({} as never, id)
+    expect(existsSync(inside)).toBe(false)
+    expect(existsSync(outside)).toBe(true)
   })
 })

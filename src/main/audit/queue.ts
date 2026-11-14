@@ -5,6 +5,8 @@ export class AuditQueue {
   private running = 0
   private active = new Set<number>() // queued or running
   private waiters: (() => void)[] = []
+  /** Вызывается, когда очередь опустела. */
+  onIdle?: () => void
   constructor(private concurrency: number, private worker: (placeId: number) => Promise<void>) {}
 
   push(placeId: number): void {
@@ -28,7 +30,7 @@ export class AuditQueue {
         this.running--
         this.active.delete(id)
         this.pump()
-        if (this.size() === 0) { const w = this.waiters; this.waiters = []; w.forEach((r) => r()) }
+        if (this.size() === 0) { const w = this.waiters; this.waiters = []; w.forEach((r) => r()); this.onIdle?.() }
       })
     }
   }

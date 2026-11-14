@@ -34,8 +34,12 @@ export function passHandlers(t: Table, d: IpcDeps): { isRunning(): boolean } {
     void runPass({
       db: d.db, osm: d.osm, google, rng: d.rng, now: d.now, emit, categories: CATEGORIES, priors: PRIORS
     }, params, ctl)
-      .catch((err: unknown) => emit({ type: 'warning', text: `Проход прерван: ${err instanceof Error ? err.message : String(err)}` }))
-      .finally(() => { current = null })
+      .catch((err: unknown) => {
+        emit({ type: 'warning', text: `Проход прерван: ${err instanceof Error ? err.message : String(err)}` })
+        // UI не должен застрять в «идёт проход»
+        emit({ type: 'done', summary: { passId: 0, cellsDone: 0, newCount: 0, dupCount: 0, googleUsed: 0, stopped: true } })
+      })
+      .finally(() => { current = null; d.onPassEnd?.() })
   })
   define(t, 'pass.pause', () => { if (current) current.paused = true })
   define(t, 'pass.resume', () => { if (current) current.paused = false })

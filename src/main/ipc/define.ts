@@ -16,6 +16,8 @@ export interface IpcDeps {
   secretEnv: SecretEnv
   userDataDir: string
   auditQueue: AuditQueue
+  /** Проход закончился (успешно или с ошибкой). */
+  onPassEnd?: () => void
   now: () => number
   rng: () => number
   osm: (bbox: BBox, cat: Category) => Promise<RawPlace[]>

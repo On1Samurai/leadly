@@ -6,7 +6,7 @@ import type { BBox, Channel, Contact, Finding, Place, Status, WebClass } from '.
 
 export type SecretName = 'anthropic' | 'google' | 'telegram'
 
-export interface CityHit { name: string; displayName: string; bbox: BBox; polygon: GeoPolygon | GeoMultiPolygon | null }
+export interface CityHit { id: string; name: string; displayName: string; bbox: BBox; polygon: GeoPolygon | GeoMultiPolygon | null }
 export interface PassSummary { passId: number; cellsDone: number; newCount: number; dupCount: number; googleUsed: number; stopped: boolean }
 export type PassEvent =
   | { type: 'cell'; cellId: number; ix: number; iy: number; newCount: number; dupCount: number; googleRequests: number }
@@ -34,7 +34,7 @@ export type WriteOpen = { url: string | null; prefilled: boolean; left: number }
 export interface Api {
   settings: { get(): Promise<AppSettings>; set(patch: Partial<AppSettings>): Promise<void> }
   secrets: { set(name: SecretName, value: string): Promise<void>; has(): Promise<Record<SecretName, boolean>> }
-  city: { search(q: string): Promise<CityHit[]>; save(hit: CityHit): Promise<number>; list(): Promise<{ id: number; name: string }[]> }
+  city: { search(q: string): Promise<CityHit[]>; save(hit: { id: string }): Promise<number>; list(): Promise<{ id: number; name: string }[]> }
   pass: {
     start(p: { cityId: number; categoryId: string }): Promise<void>; pause(): Promise<void>; resume(): Promise<void>
     stop(): Promise<void>; cells(cityId: number): Promise<CellView[]>; onEvent(cb: (e: PassEvent) => void): () => void
