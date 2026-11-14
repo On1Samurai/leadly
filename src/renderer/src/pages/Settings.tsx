@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { SecretName } from '../../../shared/ipc'
-import type { AppSettings, Tone } from '../../../shared/settings'
-import { DEFAULT_SETTINGS } from '../../../shared/settings'
+import type { AppSettings, NumKey, Tone } from '../../../shared/settings'
+import { DEFAULT_SETTINGS, NUM_LIMITS, parseNumDraft } from '../../../shared/settings'
 import { Button } from '../components/Button'
 import { Field, SecretField, TextInput, inputCls } from '../components/Field'
 import { CountryPicker, SellsPicker } from '../components/Pickers'
@@ -14,15 +14,46 @@ const Section = ({ title, children }: { title: string; children: ReactNode }): R
   </section>
 )
 
+/** Число: черновик-строка, сохранение по blur/Enter; при ошибке откат к последнему сохранённому. */
+function NumField({ k, label, hint, value, onCommit, onError }: {
+  k: NumKey; label: string; hint?: string; value: number; onCommit: (v: number) => void; onError: (m: string | null) => void
+}): React.JSX.Element {
+  const [draft, setDraft] = useState(String(value))
+  const [local, setLocal] = useState<string | null>(null)
+  useEffect(() => setDraft(String(value)), [value])
+  const commit = async (): Promise<void> => {
+    if (draft.trim() === String(value)) { setLocal(null); return }
+    const v = parseNumDraft(draft, k)
+    if (v === null) {
+      setDraft(String(value))
+      setLocal(`Введите целое число от ${NUM_LIMITS[k].min} до ${NUM_LIMITS[k].max.toLocaleString('ru-RU')}`)
+      return
+    }
+    try { await window.api.settings.set({ [k]: v }); onCommit(v); setLocal(null); onError(null) } catch (e) {
+      setDraft(String(value)); setLocal(errText(e))
+    }
+  }
+  return (
+    <Field label={label} hint={hint}>
+      <TextInput type="text" inputMode="numeric" value={draft} className="w-28 font-mono"
+        onChange={(e) => setDraft(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+      {local && <span role="alert" className="mt-1 block text-xs text-danger">{local}</span>}
+    </Field>
+  )
+}
+
 export function Settings(): React.JSX.Element {
   const [s, setS] = useState<AppSettings>(DEFAULT_SETTINGS)
   const [has, setHas] = useState<Record<SecretName, boolean>>({ anthropic: false, google: false, telegram: false })
   const [err, setErr] = useState<string | null>(null)
+  const [dataDir, setDataDir] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
 
   useEffect(() => {
     window.api.settings.get().then(setS).catch((e) => setErr(errText(e)))
     window.api.secrets.has().then(setHas).catch((e) => setErr(errText(e)))
+    window.api.app.dataDir().then(setDataDir).catch((e) => setErr(errText(e)))
   }, [])
 
   const patch = (p: Partial<AppSettings>): void => {
@@ -30,11 +61,8 @@ export function Settings(): React.JSX.Element {
     setErr(null)
     window.api.settings.set(p).catch((e) => setErr(errText(e)))
   }
-  const num = (k: 'densityThreshold' | 'nextPageThreshold' | 'randomEvery' | 'googleBudget' | 'dailyWriteLimit' | 'dailyGoal' | 'noReplyDays', label: string, hint?: string): React.JSX.Element => (
-    <Field label={label} hint={hint}>
-      <TextInput type="number" min={0} step={1} value={s[k]} className="w-28 font-mono"
-        onChange={(e) => { const v = Math.floor(Number(e.target.value)); if (Number.isFinite(v) && v >= 0) patch({ [k]: v }) }} />
-    </Field>
+  const num = (k: NumKey, label: string, hint?: string): React.JSX.Element => (
+    <NumField key={k} k={k} label={label} hint={hint} value={s[k]} onCommit={(v) => { setS((o) => ({ ...o, [k]: v })) }} onError={setErr} />
   )
   const saveKey = (n: SecretName) => async (v: string): Promise<string | null> => {
     try { await window.api.secrets.set(n, v); setHas(await window.api.secrets.has()); return null } catch (e) { return errText(e) }
@@ -105,7 +133,11 @@ export function Settings(): React.JSX.Element {
       </Section>
 
       <Section title="Данные">
-        <div><Button variant="ghost" onClick={exportDb}>Экспорт БД</Button></div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="ghost" onClick={exportDb}>Экспорт БД</Button>
+          <span className="text-xs text-muted">Папка данных:</span>
+          <code className="break-all font-mono text-xs text-fg">{dataDir ?? '…'}</code>
+        </div>
         {note && <p className="break-all font-mono text-xs text-muted">{note}</p>}
       </Section>
     </main>

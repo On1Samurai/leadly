@@ -115,6 +115,18 @@ describe('ipc', () => {
     await expect(h['write.confirm']({} as never, 1, 'call', 'x')).rejects.toThrow('not_implemented')
   })
 
+  it('app.dataDir возвращает строку', async () => {
+    const h = buildHandlers(mkDeps(env()))
+    expect(await h['app.dataDir']({} as never)).toBe(dir)
+  })
+
+  it('settings.set отклоняет 0 для dailyGoal и randomEvery', async () => {
+    const h = buildHandlers(mkDeps(env()))
+    await expect(h['settings.set']({} as never, { dailyGoal: 0 })).rejects.toThrow('bad_args')
+    await expect(h['settings.set']({} as never, { dailyWriteLimit: 0 })).rejects.toThrow('bad_args')
+    await expect(h['settings.set']({} as never, { dailyGoal: 5 })).resolves.not.toThrow()
+  })
+
   it('mission.get считает шаг по БД', async () => {
     const h = buildHandlers(mkDeps(env()))
     const ev = {} as never

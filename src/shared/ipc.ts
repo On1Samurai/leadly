@@ -50,6 +50,7 @@ export interface Api {
   audit: { run(id: number): Promise<void>; screenshot(id: number): Promise<string | null> }
   today: { get(): Promise<TodayView> }
   mission: { get(): Promise<MissionStep> }
+  app: { dataDir(): Promise<string> }
   bot: { bindCode(): Promise<string>; status(): Promise<{ linked: boolean; running: boolean }> }
   backup: { export(): Promise<string | null> }
 }
@@ -67,6 +68,7 @@ export const METHODS: MethodMap = {
   audit: { run: true, screenshot: true },
   today: { get: true },
   mission: { get: true },
+  app: { dataDir: true },
   bot: { bindCode: true, status: true },
   backup: { export: true }
 }

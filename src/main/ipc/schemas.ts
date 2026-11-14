@@ -1,12 +1,13 @@
 import { z } from 'zod'
 import type { ChannelName } from '../../shared/ipc'
+import { NUM_LIMITS, type NumKey } from '../../shared/settings'
 
 export const STATUSES = ['new', 'written', 'replied', 'demo_opened', 'call', 'deal', 'refused', 'later'] as const
 export const CHANNEL_IDS = ['telegram', 'whatsapp', 'viber', 'instagram', 'vk', 'max', 'call', 'sms'] as const
 
 const id = z.number().int().positive()
-const count = z.number().int().min(0).max(1_000_000)
 const bool = z.boolean()
+const num = (k: NumKey) => z.number().int().min(NUM_LIMITS[k].min).max(NUM_LIMITS[k].max)
 
 // sizeKm строго из набора: иначе сетка города может стать бесконечной
 export const SettingsPatchSchema = z.object({
@@ -16,13 +17,13 @@ export const SettingsPatchSchema = z.object({
   lang: z.enum(['ru', 'uk']),
   tone: z.enum(['business', 'friendly', 'short']),
   sizeKm: z.union([z.literal(0.5), z.literal(1), z.literal(2)]),
-  densityThreshold: count,
-  nextPageThreshold: count,
-  randomEvery: count.min(1),
-  googleBudget: count,
-  dailyWriteLimit: count,
-  dailyGoal: count,
-  noReplyDays: count.min(1),
+  densityThreshold: num('densityThreshold'),
+  nextPageThreshold: num('nextPageThreshold'),
+  randomEvery: num('randomEvery'),
+  googleBudget: num('googleBudget'),
+  dailyWriteLimit: num('dailyWriteLimit'),
+  dailyGoal: num('dailyGoal'),
+  noReplyDays: num('noReplyDays'),
   digestTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   autostart: bool,
   runInBackground: bool,
@@ -63,6 +64,7 @@ export const ARGS = {
   'audit.screenshot': z.tuple([id]),
   'today.get': none,
   'mission.get': none,
+  'app.dataDir': none,
   'bot.bindCode': none,
   'bot.status': none,
   'backup.export': none

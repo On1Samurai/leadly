@@ -70,6 +70,8 @@ export function createIpc(d: IpcDeps): { handlers: Record<ChannelName, Fn>; isPa
     })
   })
 
+  define(t, 'app.dataDir', () => d.userDataDir)
+
   define(t, 'backup.export', async () => {
     const dest = await d.saveDialog(`local-leads-${new Date(d.now()).toISOString().slice(0, 10)}.db`)
     if (!dest) return null
