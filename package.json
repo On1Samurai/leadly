@@ -4,6 +4,7 @@
   "description": "Local Leads: поиск локального бизнеса без сайта",
   "main": "./out/main/index.js",
   "private": true,
+  "engines": { "node": ">=22" },
   "scripts": {
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
@@ -13,7 +14,7 @@
     "build": "npm run typecheck && electron-vite build",
     "build:win": "npm run build && electron-builder --win",
     "test": "cross-env ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
-    "postinstall": "electron-builder install-app-deps || echo install-app-deps skipped"
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.8.0",

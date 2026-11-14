@@ -21,4 +21,3 @@ nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   createDesktopShortcut: always
-npmRebuild: false
