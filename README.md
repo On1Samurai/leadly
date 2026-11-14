@@ -8,5 +8,6 @@ Windows-приложение (Electron + React + TypeScript + SQLite): поис�
 
 `postinstall` пересобирает нативные модули под Electron (`electron-builder install-app-deps`), нужен компилятор C++.
 На Linux-машине разработки без компилятора: `LL_SKIP_NATIVE_REBUILD=1 npm install`.
+На чистой установке npm сам запускает `node-gyp rebuild` для better-sqlite3 (есть binding.gyp), и без компилятора это падает до postinstall. Тогда: `npm install --ignore-scripts && node node_modules/electron/install.js && LL_SKIP_NATIVE_REBUILD=1 node scripts/postinstall.mjs`.
 better-sqlite3 13 поставляется с готовыми N-API-бинарниками, для разработки и тестов этого достаточно.
 Для релизной сборки используйте обычный `npm install` на Windows-машине с инструментами сборки.
