@@ -46,11 +46,13 @@ export function cellIndexOf(lat: number, lon: number, bbox: BBox, sizeKm: number
   return { ix, iy }
 }
 
-/** Плотные первыми; каждая randomEvery-я позиция — случайный пустой квадрат. */
-export function orderCells(cells: CellStat[], randomEvery: number, rng: () => number): CellStat[] {
+/** Плотные первыми; каждая randomEvery-я позиция — случайный пустой квадрат (random=true). */
+export function orderCellsFlagged(
+  cells: CellStat[], randomEvery: number, rng: () => number
+): { cell: CellStat; random: boolean }[] {
   const dens = (c: CellStat) => c.osmCount + c.googleYield
   const rest = [...cells].sort((a, b) => dens(b) - dens(a)) // стабильная
-  const out: CellStat[] = []
+  const out: { cell: CellStat; random: boolean }[] = []
   const total = rest.length
   while (out.length < total) {
     const pos = out.length + 1
@@ -59,11 +61,15 @@ export function orderCells(cells: CellStat[], randomEvery: number, rng: () => nu
       if (empties.length) {
         const pick = empties[Math.min(empties.length - 1, Math.floor(rng() * empties.length))]
         rest.splice(rest.indexOf(pick), 1)
-        out.push(pick)
+        out.push({ cell: pick, random: true })
         continue
       }
     }
-    out.push(rest.shift()!)
+    out.push({ cell: rest.shift()!, random: false })
   }
   return out
+}
+
+export function orderCells(cells: CellStat[], randomEvery: number, rng: () => number): CellStat[] {
+  return orderCellsFlagged(cells, randomEvery, rng).map((x) => x.cell)
 }

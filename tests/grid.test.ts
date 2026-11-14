@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { haversineM, pointInPolygon } from '../src/main/core/geo'
-import { makeGrid, cellIndexOf, orderCells, type CellStat } from '../src/main/core/grid'
+import { makeGrid, cellIndexOf, orderCells, orderCellsFlagged, type CellStat } from '../src/main/core/grid'
 
 const minsk = { south: 53.85, west: 27.40, north: 53.97, east: 27.70 }
 
@@ -66,5 +66,9 @@ describe('orderCells', () => {
   it('orderCells no random', () => {
     const r = orderCells(cells, 0, () => 0).map((c) => c.id)
     expect(r).toEqual([2, 4, 6, 1, 3, 5, 7])
+  })
+  it('orderCellsFlagged marks only random slots', () => {
+    const r = orderCellsFlagged(cells, 5, () => 0)
+    expect(r.map((x) => x.random)).toEqual([false, false, false, false, true, false, false])
   })
 })
