@@ -11,3 +11,4 @@ release/
 *.log
 .vite/
 coverage/
+.superpowers/
