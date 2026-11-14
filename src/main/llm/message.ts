@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Db } from '../db/db'
 import type { Finding, FindingCode, Place, WebClass } from '../../shared/types'
-import { checkMessage } from './check'
+import { checkMessage, type CheckReason } from './check'
 import promptFile from './prompts/first-message.md?raw'
 
 export type Tone = 'business' | 'friendly' | 'short'
@@ -49,9 +49,14 @@ export function isTextReady(input: MessageInput, db: Db): boolean {
   return db.prepare('SELECT 1 FROM llm_cache WHERE key = ?').get(cacheKey(input)) !== undefined
 }
 
-const REASONS = { too_long: 'длиннее 300 символов', unknown_number: 'упомянуто число, которого нет во входных данных' }
+const REASONS: Record<CheckReason, string> = {
+  too_long: 'длиннее 300 символов',
+  unknown_number: 'упомянуто число, которого нет во входных данных',
+  empty: 'пустой или обрезанный ответ',
+  link: 'есть ссылка'
+}
 
-async function ask(client: Pick<Anthropic, 'beta'>, content: string): Promise<string> {
+async function ask(client: Pick<Anthropic, 'beta'>, content: string): Promise<{ text: string; truncated: boolean }> {
   const res = await client.beta.messages.create({
     model: 'claude-sonnet-5-5',
     max_tokens: 4000,
@@ -62,7 +67,8 @@ async function ask(client: Pick<Anthropic, 'beta'>, content: string): Promise<st
     messages: [{ role: 'user', content }]
   })
   if (res.stop_reason === 'refusal') throw new MessageRefused('Claude отказался отвечать')
-  return res.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim()
+  const text = res.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim()
+  return { text, truncated: res.stop_reason === 'max_tokens' }
 }
 
 export async function generateMessage(
@@ -72,11 +78,13 @@ export async function generateMessage(
   const hit = deps.db.prepare('SELECT response FROM llm_cache WHERE key = ?').get(key) as { response: string } | undefined
   if (hit) return { text: hit.response, cached: true }
   const base = JSON.stringify(input)
-  let text = await ask(deps.client, base)
-  let check = checkMessage(text, input)
+  const attempt = async (content: string): Promise<{ text: string; check: ReturnType<typeof checkMessage> }> => {
+    const r = await ask(deps.client, content)
+    return { text: r.text, check: r.truncated ? { ok: false, reason: 'empty' } : checkMessage(r.text, input) }
+  }
+  let { text, check } = await attempt(base)
   if (!check.ok) {
-    text = await ask(deps.client, `${base}\n\nПредыдущий вариант отклонён: ${REASONS[check.reason]}. Исправь.`)
-    check = checkMessage(text, input)
+    ;({ text, check } = await attempt(`${base}\n\nПредыдущий вариант отклонён: ${REASONS[check.reason]}. Исправь.`))
     if (!check.ok) throw new MessageRejected(`Текст не прошёл проверку: ${check.reason}`)
   }
   deps.db.prepare('INSERT OR REPLACE INTO llm_cache(key, response, created_at) VALUES (?, ?, ?)').run(key, text, Date.now())

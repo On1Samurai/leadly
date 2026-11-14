@@ -67,6 +67,18 @@ describe('checkMessage', () => {
     expect(checkMessage('У вас 300 отзывов', input())).toEqual({ ok: false, reason: 'unknown_number' })
     expect(checkMessage('У вас 212 отзывов', input())).toEqual({ ok: true })
     expect(checkMessage('Рейтинг 4,6', input())).toEqual({ ok: true })
+    expect(checkMessage('Рейтинг 4.6', input())).toEqual({ ok: true })
+    for (const t of ['2 отзыва', '1 отзыв', '4 года', '6 лет']) expect(checkMessage(t, input())).toEqual({ ok: false, reason: 'unknown_number' })
+  })
+  it('year from evidence ok, spaced numbers collapse', () => {
+    const i = { ...input(), findings: [{ code: 'old_footer_year' as const, evidence: '© 2017' }] }
+    expect(checkMessage('Внизу сайта 2017 год', i)).toEqual({ ok: true })
+    expect(checkMessage('Нужно 1 200', { ...i, place: { ...i.place, reviews: 1200 } })).toEqual({ ok: true })
+  })
+  it('empty and link', () => {
+    expect(checkMessage('  ', input())).toEqual({ ok: false, reason: 'empty' })
+    expect(checkMessage('Смотрите www.x.by', input())).toEqual({ ok: false, reason: 'link' })
+    expect(checkMessage('Смотрите https://x.by', input())).toEqual({ ok: false, reason: 'link' })
   })
 })
 
@@ -77,6 +89,25 @@ describe('generateMessage', () => {
     expect(r).toEqual({ text: 'Хорошо ли вам?', cached: false })
     expect(create).toHaveBeenCalledTimes(2)
     expect(create.mock.calls[1][0].messages[0].content).toContain('Предыдущий вариант отклонён: длиннее 300 символов. Исправь.')
+  })
+  it('empty first response is retried and not cached', async () => {
+    const db = openDb(':memory:')
+    const { create, client } = mk(reply(''), reply('Привет?'))
+    const r = await generateMessage(input(), { client, db })
+    expect(r).toEqual({ text: 'Привет?', cached: false })
+    expect(create.mock.calls[1][0].messages[0].content).toContain('пустой или обрезанный ответ')
+    expect(isTextReady(input(), db)).toBe(true)
+  })
+  it('max_tokens is retried', async () => {
+    const { create, client } = mk(reply('Обрезан', 'max_tokens'), reply('Привет?'))
+    expect((await generateMessage(input(), { client, db: openDb(':memory:') })).text).toBe('Привет?')
+    expect(create).toHaveBeenCalledTimes(2)
+  })
+  it('link rejected and never cached', async () => {
+    const db = openDb(':memory:')
+    const { client } = mk(reply('Зайдите на https://x.by'), reply('Смотрите www.x.by'))
+    await expect(generateMessage(input(), { client, db })).rejects.toBeInstanceOf(MessageRejected)
+    expect(isTextReady(input(), db)).toBe(false)
   })
   it('rejected after second failure', async () => {
     const { client } = mk(reply('а'.repeat(400)), reply('б'.repeat(400)))
