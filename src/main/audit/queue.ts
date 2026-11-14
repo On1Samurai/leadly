@@ -3,10 +3,13 @@ import type { Db } from '../db/db'
 export class AuditQueue {
   private q: number[] = []
   private running = 0
+  private active = new Set<number>() // queued or running
   private waiters: (() => void)[] = []
   constructor(private concurrency: number, private worker: (placeId: number) => Promise<void>) {}
 
   push(placeId: number): void {
+    if (this.active.has(placeId)) return
+    this.active.add(placeId)
     this.q.push(placeId)
     this.pump()
   }
@@ -23,6 +26,7 @@ export class AuditQueue {
       this.running++
       void this.worker(id).catch(() => undefined).finally(() => {
         this.running--
+        this.active.delete(id)
         this.pump()
         if (this.size() === 0) { const w = this.waiters; this.waiters = []; w.forEach((r) => r()) }
       })

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { migrate, openDb, type Db } from '../src/main/db/db'
 import {
-  candidatesNear, deletePlaceForever, getSetting, insertPlace, setSetting, setStatus, addContacts
+  candidatesNear, deletePlaceForever, getSetting, getPlace, insertPlace, setSetting, setStatus, addContacts, updatePlace
 } from '../src/main/db/repo'
 import type { Place } from '../src/shared/types'
 
@@ -31,6 +31,16 @@ afterEach(() => {
 })
 
 describe('db', () => {
+  it('updatePlace ignores unknown, prototype and undefined keys', () => {
+    const id = insertPlace(db, mkPlace({ name: 'A', rating: 4 }))
+    updatePlace(db, id, { name: 'B', rating: undefined, toString: 'x', hasOwnProperty: 1, 'name=1; --': 'z', id: 99 } as never)
+    const p = getPlace(db, id)!
+    expect(p.name).toBe('B')
+    expect(p.rating).toBe(4)
+    expect(p.id).toBe(id)
+    updatePlace(db, id, { rating: undefined } as never) // nothing to update: no throw
+  })
+
   it('migrate twice is idempotent', () => {
     migrate(db)
     const rows = db.prepare('SELECT version FROM schema_version').all() as { version: number }[]

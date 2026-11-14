@@ -47,3 +47,16 @@ describe('enqueueAudits', () => {
     expect(got).toEqual([1])
   })
 })
+
+describe('AuditQueue dedupe', () => {
+  it('ignores an id already queued or running', async () => {
+    const runs: number[] = []
+    const q = new AuditQueue(1, async (id) => { runs.push(id); await new Promise((r) => setTimeout(r, 10)) })
+    q.push(1); q.push(1); q.push(2); q.push(2); q.push(1)
+    await q.idle()
+    expect(runs).toEqual([1, 2])
+    q.push(1) // finished ids can be queued again
+    await q.idle()
+    expect(runs).toEqual([1, 2, 1])
+  })
+})

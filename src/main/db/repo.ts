@@ -63,7 +63,9 @@ export function insertPlace(db: Db, p: Omit<Place, 'id'>): number {
 }
 
 export function updatePlace(db: Db, id: number, patch: Partial<Place>): void {
-  const keys = (Object.keys(patch) as (keyof Place)[]).filter((k): k is keyof typeof COLS => k !== 'id' && k in COLS)
+  // patch may come from IPC (untyped at runtime): only own COLS keys, never undefined values
+  const keys = (Object.keys(patch) as (keyof Place)[])
+    .filter((k): k is keyof typeof COLS => k !== 'id' && Object.hasOwn(COLS, k) && patch[k] !== undefined)
   if (!keys.length) return
   db.prepare(`UPDATE places SET ${keys.map((k) => `${COLS[k]}=?`).join(',')} WHERE id=?`)
     .run(...keys.map((k) => toSql(patch[k])), id)
