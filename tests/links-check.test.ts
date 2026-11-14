@@ -15,6 +15,10 @@ function mk(handler: (url: string, method: string) => number | 'throw') {
 }
 
 describe('checkLinks', () => {
+  it('401/403/429 are unknown, not broken', async () => {
+    const { fn } = mk((u) => (u.endsWith('/a') ? 403 : u.endsWith('/b') ? 429 : u.endsWith('/c') ? 401 : 404))
+    expect(await checkLinks('https://s.ru/', ['/a', '/b', '/c', '/d'], fn)).toEqual(['https://s.ru/d'])
+  })
   it('same-origin only and max 20', async () => {
     const own = Array.from({ length: 25 }, (_, i) => `/p${i}`)
     const foreign = ['https://other.com/a', 'https://other.com/b', 'https://evil.org/']

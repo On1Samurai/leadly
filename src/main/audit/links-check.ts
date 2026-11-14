@@ -25,15 +25,22 @@ export async function checkLinks(pageUrl: string, hrefs: string[], fetchFn: Fetc
     urls.push(s)
     if (urls.length >= MAX_LINKS) break
   }
-  const results = await Promise.all(urls.map(async (u) => ((await status(u, fetchFn)) >= 400 ? u : null)))
+  const results = await Promise.all(urls.map(async (u) => (isBroken(await status(u, fetchFn)) ? u : null)))
   return results.filter((x): x is string => x !== null)
 }
+
+// 401/403/429 are bot protection or auth, not a broken link: unknown.
+const isBroken = (s: number): boolean => s >= 400 && s !== 401 && s !== 403 && s !== 429
 
 async function status(url: string, fetchFn: FetchFn): Promise<number> {
   const req = async (method: string): Promise<number> => {
     const ac = new AbortController()
     const t = setTimeout(() => ac.abort(), TIMEOUT_MS)
-    try { return (await fetchFn(url, { method, signal: ac.signal, redirect: 'follow' })).status }
+    try {
+      const res = await fetchFn(url, { method, signal: ac.signal, redirect: 'follow' })
+      void res.body?.cancel().catch(() => undefined)
+      return res.status
+    }
     catch { return 0 }
     finally { clearTimeout(t) }
   }

@@ -24,6 +24,8 @@ function setupSession(): void {
   sessionReady = true
   const ses = session.fromPartition(PARTITION)
   ses.on('will-download', (e) => e.preventDefault())
+  ses.setPermissionRequestHandler((_wc, _p, cb) => cb(false))
+  ses.setPermissionCheckHandler(() => false)
   ses.webRequest.onHeadersReceived((d, cb) => {
     if (d.resourceType === 'mainFrame' && d.webContentsId !== undefined) {
       const l = listeners.get(d.webContentsId)
@@ -77,17 +79,24 @@ function candidates(url: string): string[] {
   return /^https?:\/\//i.test(u) ? [u] : [`https://${u}`, `http://${u}`]
 }
 
-export async function runAudit(url: string, opts: { timeoutMs?: number; checkMenu?: boolean } = {}): Promise<AuditResult> {
+export async function runAudit(url: string, opts: { timeoutMs?: number; checkMenu?: boolean; deadlineMs?: number } = {}): Promise<AuditResult> {
   const timeoutMs = opts.timeoutMs ?? 30000
+  const deadlineMs = opts.deadlineMs ?? 100000
   setupSession()
   const win = new BrowserWindow({
     show: false, width: 390, height: 844,
     webPreferences: { partition: PARTITION, sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: true }
   })
   const wc = win.webContents
+  // Lock the audited page down: no popups, only http(s) navigation.
+  wc.setWindowOpenHandler(() => ({ action: 'deny' }))
+  const httpOnly = (e: { preventDefault(): void }, u: string): void => { if (!/^https?:/i.test(u)) e.preventDefault() }
+  wc.on('will-navigate', (e, u) => httpOnly(e, u))
+  wc.on('will-redirect', (e, u) => httpOnly(e, u))
   let frame: MainFrameInfo | null = null
   listeners.set(wc.id, (i) => { frame = i })
   let attached = false
+  const work = async (): Promise<AuditResult> => {
   try {
     wc.setUserAgent(UA)
     wc.setBackgroundThrottling(false) // hidden window: otherwise captureScreenshot may wait for a frame forever
@@ -166,7 +175,18 @@ export async function runAudit(url: string, opts: { timeoutMs?: number; checkMen
     return { findings, screenshot, contacts }
   } catch (e) {
     return { findings: [], screenshot: null, contacts: [], error: e instanceof Error ? e.message : String(e) }
+  }
+  }
+  let deadline: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<AuditResult>((res) => {
+        deadline = setTimeout(() => res({ findings: [], screenshot: null, contacts: [], error: 'audit_timeout' }), deadlineMs)
+      })
+    ])
   } finally {
+    clearTimeout(deadline)
     listeners.delete(wc.id)
     try { if (attached) wc.debugger.detach() } catch { /* ignore */ }
     if (!win.isDestroyed()) win.destroy()
