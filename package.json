@@ -1,5 +1,6 @@
 {
   "name": "local-leads",
+  "productName": "Local Leads",
   "version": "0.1.0",
   "description": "Local Leads: поиск локального бизнеса без сайта",
   "main": "./out/main/index.js",

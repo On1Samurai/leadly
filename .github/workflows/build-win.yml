@@ -23,8 +23,9 @@ jobs:
       - name: Проверка упаковки better-sqlite3
         shell: pwsh
         run: |
-          $p = 'release/win-unpacked/resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
-          if (-not (Test-Path $p)) { Write-Error "Не найден $p"; exit 1 }
+          $d = 'release/win-unpacked/resources/app.asar.unpacked/node_modules/better-sqlite3'
+          $ok = (Test-Path "$d/build/Release/better_sqlite3.node") -or (Test-Path "$d/prebuilds/win32-x64.node")
+          if (-not $ok) { Write-Error "better_sqlite3.node не найден ни в build/Release, ни в prebuilds/win32-x64.node под $d"; exit 1 }
       - uses: actions/upload-artifact@v4
         with:
           name: local-leads-setup
