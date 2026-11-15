@@ -64,8 +64,11 @@ function nextCandidates(db: Db, cityId: number | undefined, now: number, s: AppS
     const p = getPlace(db, r.id)
     return { ...r, textReady: p ? isTextReady(inputFor(db, p, s), db) : false }
   })
-  // готовый текст вперёд (sort стабилен: порядок score внутри групп сохраняется)
-  return out.sort((a, b) => Number(b.status === 'new' && b.textReady) - Number(a.status === 'new' && a.textReady))
+  // готовый текст вперёд только внутри новых; напоминания и ответившие остаются впереди (sort стабилен)
+  const isNew = (x: NextActionInput): boolean => x.status === 'new' && !(x.remindAt !== null && x.remindAt <= now)
+  const head = out.filter((x) => !isNew(x))
+  const fresh = out.filter(isNew).sort((x, y) => Number(y.textReady) - Number(x.textReady))
+  return [...head, ...fresh]
 }
 
 function need(db: Db, id: number): Place {

@@ -280,5 +280,10 @@ describe('ipc', () => {
     const r = (await h['places.nextCandidates']({} as never)) as NextActionInput[]
     expect(r.map((x) => [x.name, x.textReady])).toEqual([['low', true], ['high', false]])
     expect(nextAction(r, 1000)).toMatchObject({ kind: 'write', placeId: low })
+    // просроченное напоминание остаётся впереди new+textReady и выбирается nextAction
+    const due = insertPlace(db, mkPlace({ name: 'due', status: 'written', remindAt: 100 }))
+    const r2 = (await h['places.nextCandidates']({} as never)) as NextActionInput[]
+    expect(r2.map((x) => x.name)).toEqual(['due', 'low', 'high'])
+    expect(nextAction(r2, 1000)).toMatchObject({ kind: 'remind', placeId: due })
   })
 })
