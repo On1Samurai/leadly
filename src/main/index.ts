@@ -51,7 +51,7 @@ function createWindow(show: boolean): void {
   win.on('ready-to-show', () => { if (show) win.show() })
   // закрытие сворачивает в трей, если нужна работа в фоне или работает бот
   win.on('close', (e) => {
-    if (quitting || !db || !(loadSettings(db).runInBackground || bot?.running())) return
+    if (quitting || !tray || !db || !(loadSettings(db).runInBackground || bot?.running())) return
     e.preventDefault()
     win.hide()
   })
@@ -73,6 +73,7 @@ if (!app.requestSingleInstanceLock()) app.quit()
 else app.on('second-instance', () => { if (app.isReady()) showWindow() })
 
 const applyAutostart = (conn: Db): void => {
+  if (!app.isPackaged) return // в dev иначе в автозапуск попадёт сам electron
   app.setLoginItemSettings({ openAtLogin: loadSettings(conn).autostart, args: ['--hidden'] })
 }
 
@@ -84,7 +85,7 @@ app.whenReady().then(() => {
   const secretEnv = { safeStorage, isDev: !app.isPackaged, env: process.env }
   const botMgr = createBotManager(conn, () => getSecret(conn, 'telegram', secretEnv))
   bot = botMgr
-  void botMgr.restart()
+  botMgr.restart().catch((e) => console.error('bot restart failed', (e as Error).name))
   applyAutostart(conn)
   const queue = new AuditQueue(2, makeAuditWorker(conn, userDataDir, (url, opts) => runAudit(url, opts)))
   auditQueue = queue
@@ -93,7 +94,7 @@ app.whenReady().then(() => {
     db: conn,
     secretEnv,
     bot: botMgr,
-    onSecretSet: (name) => { if (name === 'telegram') void botMgr.restart() },
+    onSecretSet: (name) => { if (name === 'telegram') botMgr.restart().catch((e) => console.error('bot restart failed', (e as Error).name)) },
     onSettingsSet: () => applyAutostart(conn),
     userDataDir,
     auditQueue: queue,
@@ -119,14 +120,17 @@ app.whenReady().then(() => {
   }), Date.now, () => ({ digestTime: loadSettings(conn).digestTime, latestCatchUp: '12:00' }))
   scheduler = sch
   sch.start()
-  tray = new Tray(nativeImage.createFromPath(join(app.getAppPath(), 'resources/icon.png')))
-  tray.setToolTip('Local Leads')
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Открыть', click: showWindow },
-    { label: 'Выход', click: () => app.quit() }
-  ]))
-  tray.on('click', showWindow)
-  createWindow(!hidden)
+  try {
+    const t = new Tray(nativeImage.createFromPath(join(app.getAppPath(), 'resources/icon.png')))
+    t.setToolTip('Local Leads')
+    t.setContextMenu(Menu.buildFromTemplate([
+      { label: 'Открыть', click: showWindow },
+      { label: 'Выход', click: () => app.quit() }
+    ]))
+    t.on('click', showWindow)
+    tray = t
+  } catch (err) { console.error('tray failed', (err as Error).name) }
+  createWindow(!hidden || !tray) // без трея скрытый запуск оставил бы приложение невидимым
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(true)
   })
@@ -147,7 +151,10 @@ app.on('before-quit', (e) => {
   quitting = true
   e.preventDefault()
   void (async () => {
-    try { await scheduler?.stop(); await bot?.stop() } catch (err) { console.error('shutdown failed', err) }
+    const bounded = (p: Promise<unknown> | undefined): Promise<unknown> =>
+      Promise.race([p ?? Promise.resolve(), new Promise((r) => setTimeout(r, 5000).unref())]).catch((err) => console.error('shutdown step failed', (err as Error).name))
+    await bounded(scheduler?.stop())
+    await bounded(bot?.stop())
     scheduler = null; bot = null; tray?.destroy(); tray = null
     try { db?.close() } catch (err) { console.error('db close failed', err) }
     db = null

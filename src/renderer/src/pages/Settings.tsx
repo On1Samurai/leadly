@@ -63,7 +63,7 @@ function BotSection({ onError, tokenSaved }: { onError: (m: string | null) => vo
   }
   return (
     <Section title="Telegram-бот">
-      <p className="text-sm">{st?.linked ? 'привязан ✓' : 'не привязан'}</p>
+      <p className="text-sm">{st?.linked ? 'привязан ✓' : 'не привязан'}; {st?.running ? 'запущен' : 'не запущен'}</p>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" onClick={getCode}>Получить код привязки</Button>
         {st?.linked && <Button variant="ghost" onClick={unlink}>Отвязать</Button>}

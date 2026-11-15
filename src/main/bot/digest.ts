@@ -7,12 +7,14 @@ export const escapeHtml = (s: string): string => s.replace(/&/g, '&amp;').replac
 /** Текст для Telegram (parse_mode HTML): пустые разделы не выводятся. */
 export function buildDigest(d: DigestData): string {
   const list = (xs: { name: string }[]): string => xs.map((x) => escapeHtml(x.name)).join(', ')
-  return [
+  const text = [
     `Доброе утро. Сегодня ${escapeHtml(d.date)}`,
     d.replied.length ? `Ответили: ${list(d.replied)}` : null,
     d.remind.length ? `Напомнить: ${list(d.remind)}` : null,
     `Цель: написать ${d.goal}, уже ${d.written}`
   ].filter((l): l is string => l !== null).join('\n')
+  // лимит Telegram 4096; не оставляем обрезанную HTML-сущность
+  return text.length <= 4000 ? text : text.slice(0, 4000).replace(/&[a-z]*$/, '')
 }
 
 export const digestFromView = (v: TodayView, now: number): string => buildDigest({

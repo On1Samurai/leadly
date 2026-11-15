@@ -4,7 +4,7 @@ import type { Db } from '../db/db'
 import { getSetting, setSetting } from '../db/repo'
 import { loadSettings } from '../settings'
 import { todayView } from '../today'
-import { decide, type BindCode } from './auth'
+import { decide, MAX_TRIES, type BindCode } from './auth'
 import { digestFromView } from './digest'
 
 const BIND_TTL_MS = 10 * 60_000
@@ -33,8 +33,15 @@ export function startBot(db: Db, token: string): BotHandle {
 
   bot.catch((e) => logErr('bot handler failed', e.error))
   bot.use(async (ctx, next) => {
-    const d = decide({ chatId: ctx.chat?.id, text: ctx.message?.text, bound: getChatId(db), bind: getSetting<BindCode | null>(db, K_CODE, null), now: Date.now() })
-    if (d === 'ignore') return
+    const bind = getSetting<BindCode | null>(db, K_CODE, null)
+    const d = decide({ chatId: ctx.chat?.id, text: ctx.message?.text, bound: getChatId(db), bind, now: Date.now() })
+    if (d === 'badcode' && bind) {
+      const tries = (bind.tries ?? 0) + 1 // 5 неверных попыток гасят код
+      if (tries >= MAX_TRIES) db.prepare('DELETE FROM settings WHERE key=?').run(K_CODE)
+      else setSetting(db, K_CODE, { ...bind, tries })
+      return
+    }
+    if (d === 'ignore' || d === 'badcode') return
     if (d === 'bind') {
       setSetting(db, K_CHAT, ctx.chat!.id)
       db.prepare('DELETE FROM settings WHERE key=?').run(K_CODE)
@@ -83,12 +90,19 @@ export interface BotManager {
   bound(): boolean
 }
 
-export function createBotManager(db: Db, getToken: () => string | null): BotManager {
+export function createBotManager(db: Db, getToken: () => string | null, start: (db: Db, token: string) => BotHandle = startBot): BotManager {
   let cur: BotHandle | null = null
-  const stop = async (): Promise<void> => { const b = cur; cur = null; await b?.stop() }
+  let chain: Promise<unknown> = Promise.resolve()
+  // все restart/stop идут по очереди: два параллельных поллера дают 409
+  const queue = (f: () => Promise<void>): Promise<void> => {
+    const p = chain.then(f, f)
+    chain = p.catch(() => undefined)
+    return p
+  }
+  const halt = async (): Promise<void> => { const b = cur; cur = null; await b?.stop() }
   return {
-    stop,
-    restart: async () => { await stop(); const t = getToken(); if (t) cur = startBot(db, t) },
+    stop: () => queue(halt),
+    restart: () => queue(async () => { await halt(); const t = getToken(); if (t) cur = start(db, t) }),
     running: () => cur?.running() ?? false,
     status: () => ({ linked: getChatId(db) !== null, running: cur?.running() ?? false }),
     bindCode: () => {
