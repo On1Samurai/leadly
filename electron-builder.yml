@@ -1,5 +1,5 @@
-appId: app.localleads.desktop
-productName: Local Leads
+appId: app.leadly.desktop
+productName: Leadly
 directories:
   buildResources: build
   output: release
@@ -20,7 +20,7 @@ asarUnpack:
   - '**/node_modules/better-sqlite3/**'
   - '**/*.node'
 win:
-  executableName: local-leads
+  executableName: leadly
   icon: build/icon.ico
   target: nsis
 nsis:

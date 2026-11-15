@@ -16,6 +16,6 @@ const show = (title: string, body: string): void => {
 
 /** Системные уведомления; Задача 18 добавляет бота поверх. */
 export const desktopNotifier: Notifier = {
-  digest: async (v) => show('Local Leads', digestText(v)),
-  reminder: async (p) => show('Local Leads', reminderText(p))
+  digest: async (v) => show('Leadly', digestText(v)),
+  reminder: async (p) => show('Leadly', reminderText(p))
 }

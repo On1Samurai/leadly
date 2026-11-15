@@ -91,7 +91,7 @@ const applyAutostart = (conn: Db): void => {
 app.whenReady().then(() => {
   if (!app.hasSingleInstanceLock()) return
   const userDataDir = app.getPath('userData')
-  const conn = openDb(join(userDataDir, 'local-leads.db'))
+  const conn = openDb(join(userDataDir, 'leadly.db'))
   db = conn
   const secretEnv = { safeStorage, isDev: !app.isPackaged, env: process.env }
   const botMgr = createBotManager(conn, () => getSecret(conn, 'telegram', secretEnv))
@@ -133,7 +133,7 @@ app.whenReady().then(() => {
   sch.start()
   try {
     const t = new Tray(nativeImage.createFromPath(join(app.getAppPath(), 'resources/icon.png')))
-    t.setToolTip('Local Leads')
+    t.setToolTip('Leadly')
     t.setContextMenu(Menu.buildFromTemplate([
       { label: 'Открыть', click: showWindow },
       { label: 'Выход', click: () => app.quit() }

@@ -75,7 +75,7 @@ export async function fetchOverpass(
     try {
       res = await fetchFn('https://overpass-api.de/api/interpreter', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'LocalLeads/0.1 (desktop app)', Accept: '*/*' },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Leadly/0.1 (desktop app)', Accept: '*/*' },
         body: `data=${encodeURIComponent(query)}`
       })
     } catch (e) {

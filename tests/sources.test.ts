@@ -86,7 +86,7 @@ describe('nominatim', () => {
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toContain('countrycodes=by')
     expect(url).toContain('q=%D0%9C')
-    expect((init.headers as Record<string, string>)['User-Agent']).toBe('LocalLeads/0.1 (desktop app)')
+    expect((init.headers as Record<string, string>)['User-Agent']).toBe('Leadly/0.1 (desktop app)')
   })
 })
 

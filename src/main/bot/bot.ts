@@ -45,7 +45,7 @@ export function startBot(db: Db, token: string): BotHandle {
     if (d === 'bind') {
       setSetting(db, K_CHAT, ctx.chat!.id)
       db.prepare('DELETE FROM settings WHERE key=?').run(K_CODE)
-      await ctx.reply('Готово: бот привязан к Local Leads.')
+      await ctx.reply('Готово: бот привязан к Leadly.')
       return
     }
     await next()

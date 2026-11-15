@@ -1,8 +1,8 @@
 {
-  "name": "local-leads",
-  "productName": "Local Leads",
+  "name": "leadly",
+  "productName": "Leadly",
   "version": "0.1.0",
-  "description": "Local Leads: поиск локального бизнеса без сайта",
+  "description": "Leadly: поиск локального бизнеса без сайта",
   "main": "./out/main/index.js",
   "private": true,
   "engines": { "node": ">=22" },

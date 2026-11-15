@@ -31,7 +31,7 @@ interface NominatimItem {
 export async function searchCity(q: string, country: string, fetchFn: FetchFn = fetch): Promise<CityHit[]> {
   const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&polygon_geojson=1&limit=5'
     + `&countrycodes=${encodeURIComponent(country.toLowerCase())}&q=${encodeURIComponent(q)}`
-  const res = await throttled(() => fetchFn(url, { headers: { 'User-Agent': 'LocalLeads/0.1 (desktop app)' } }))
+  const res = await throttled(() => fetchFn(url, { headers: { 'User-Agent': 'Leadly/0.1 (desktop app)' } }))
   if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`)
   const items = (await res.json()) as NominatimItem[]
   return items.filter((i) => i.boundingbox?.length === 4).map((i) => {
