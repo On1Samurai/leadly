@@ -8,14 +8,8 @@ import { Base } from './pages/Base'
 import { Help } from './pages/Help'
 import { Onboarding } from './pages/Onboarding'
 import { Search } from './pages/Search'
+import { Today } from './pages/Today'
 import { Settings } from './pages/Settings'
-
-const Soon = ({ title }: { title: string }): React.JSX.Element => (
-  <main className="px-8 py-8">
-    <h1 className="mb-2 text-2xl font-bold">{title}</h1>
-    <p className="text-muted">Скоро</p>
-  </main>
-)
 
 function App(): React.JSX.Element {
   const [page, setPage] = useState<Page | null>(null)
@@ -47,7 +41,7 @@ function App(): React.JSX.Element {
           <div className="min-h-0 flex-1 overflow-y-auto">
             {page === 'search' && <Search />}
             {page === 'base' && <Base key={params.cityId ?? 'all'} />}
-            {page === 'today' && <Soon title="Сегодня" />}
+            {page === 'today' && <Today />}
             {page === 'settings' && <Settings />}
             {page === 'help' && <Help />}
           </div>

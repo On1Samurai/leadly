@@ -6,10 +6,16 @@ import { runAudit } from './audit/runner'
 import { openDb, type Db } from './db/db'
 import { registerIpc } from './ipc'
 import { makeAuditWorker } from './ipc/audit-worker'
+import { backupNow } from './backup'
+import { PRIORS } from './ipc/data'
+import { desktopNotifier } from './notify'
+import { makeHandlers, noreplyRescore, Scheduler } from './scheduler'
+import { loadSettings } from './settings'
 import { buildOverpassQuery, fetchOverpass, parseOverpass } from './sources/osm'
 
 let db: Db | null = null
 let auditQueue: AuditQueue | null = null
+let scheduler: Scheduler | null = null
 let passRunning: () => boolean = () => false
 
 function createWindow(): void {
@@ -64,6 +70,13 @@ app.whenReady().then(() => {
     writeClipboard: (text) => clipboard.writeText(text),
     anthropicFactory: (apiKey) => new Anthropic({ apiKey })
   }).isPassRunning
+  const sch = new Scheduler(conn, makeHandlers(conn, {
+    notify: desktopNotifier, // Задача 18 заменит на уведомитель с ботом
+    backup: (now) => backupNow(conn, join(userDataDir, 'backups'), now),
+    noreply: (now) => noreplyRescore(conn, PRIORS, now)
+  }), Date.now, () => ({ digestTime: loadSettings(conn).digestTime, latestCatchUp: '12:00' }))
+  scheduler = sch
+  sch.start()
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -79,4 +92,4 @@ function maybeQuit(): void {
 
 app.on('window-all-closed', maybeQuit)
 
-app.on('before-quit', () => { db?.close(); db = null })
+app.on('before-quit', () => { scheduler?.stop(); scheduler = null; db?.close(); db = null })
