@@ -4,8 +4,8 @@ import type { Db } from './db/db'
 import { getPlace } from './db/repo'
 import { toView } from './ipc/places'
 import { loadSettings } from './settings'
+import { atLocal } from './time'
 
-const DAY = 86_400_000
 
 /** «Сегодня»: written считается с локальной полуночи. */
 export function todayView(db: Db, now: number, goal: number): TodayView {
@@ -18,7 +18,7 @@ export function todayView(db: Db, now: number, goal: number): TodayView {
     .map((p) => toView(db, p, s))
   const remindToday = views(db.prepare(
     "SELECT id FROM places WHERE remind_at IS NOT NULL AND remind_at < ? AND status NOT IN ('refused','deal') ORDER BY remind_at"
-  ).all(from + DAY) as { id: number }[])
+  ).all(atLocal(now, '00:00', 1)) as { id: number }[])
   const replied = views(db.prepare("SELECT id FROM places WHERE status='replied' ORDER BY score DESC, id LIMIT 50").all() as { id: number }[])
   return { goal, written, remindToday, replied, leftToday: Math.max(0, goal - written) }
 }

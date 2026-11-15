@@ -6,6 +6,9 @@ import type { TodayView } from '../shared/ipc'
 import type { Place } from '../shared/types'
 import { loadSettings } from './settings'
 import { todayView } from './today'
+import { atLocal, nextHour, startOfDay } from './time'
+
+export { atLocal, nextHour, startOfDay }
 
 export type JobKind = 'reminder' | 'digest' | 'backup' | 'noreply'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -15,18 +18,6 @@ export interface DailyCfg { digestTime: string; latestCatchUp: string }
 const RETRY_MS = 30 * 60_000
 const BATCH = 50
 export const BACKUP_TIME = '04:00'
-
-// Всё время — местное: локальные конструкторы Date, поэтому смена часового пояса/DST не ломает «09:00».
-export function atLocal(now: number, hhmm: string, dayOffset = 0): number {
-  const [h, m] = hhmm.split(':').map(Number)
-  const d = new Date(now)
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + dayOffset, h, m, 0, 0).getTime()
-}
-export const startOfDay = (now: number): number => atLocal(now, '00:00')
-/** Ближайший круглый час строго после now. */
-export function nextHour(now: number): number {
-  const d = new Date(now); d.setMinutes(60, 0, 0); return d.getTime()
-}
 
 /** Когда ставить ежедневную задачу: сегодня в `time`; уже прошло и сегодня не делали — сейчас (если до `deadline`), иначе завтра. */
 export function nextDaily(now: number, time: string, doneToday: boolean, deadline?: string): number {
@@ -38,7 +29,7 @@ export function nextDaily(now: number, time: string, doneToday: boolean, deadlin
 
 export class Scheduler {
   private timer: NodeJS.Timeout | null = null
-  private running = false
+  private inflight: Promise<number> | null = null
 
   constructor(
     private db: Db, private handlers: Handlers, private now: () => number,
@@ -53,7 +44,10 @@ export class Scheduler {
     return !!this.db.prepare('SELECT 1 FROM jobs WHERE kind=? AND done=0').get(kind)
   }
   private doneToday(kind: JobKind, now: number): boolean {
-    return !!this.db.prepare('SELECT 1 FROM jobs WHERE kind=? AND done=1 AND run_at>=?').get(kind, startOfDay(now))
+    // брошенные (dropped) и пропущенные задачи не считаются выполненными; день — по времени завершения, не по run_at
+    return !!this.db.prepare(
+      "SELECT 1 FROM jobs WHERE kind=? AND done=1 AND done_at>=? AND done_at<? AND COALESCE(json_extract(payload,'$.dropped'),0)=0"
+    ).get(kind, startOfDay(now), atLocal(now, '00:00', 1))
   }
 
   ensureDaily(now: number, s: DailyCfg): void {
@@ -62,28 +56,45 @@ export class Scheduler {
     if (!this.hasPending('noreply')) this.add('noreply', nextHour(now))
   }
 
-  async tick(): Promise<number> {
-    if (this.running) return 0
-    this.running = true
-    try {
-      const now = this.now()
-      if (this.cfg) this.ensureDaily(now, this.cfg())
-      const jobs = this.db.prepare('SELECT id, kind, run_at AS runAt, payload FROM jobs WHERE done=0 AND run_at<=? ORDER BY run_at, id LIMIT ?')
-        .all(now, BATCH) as { id: number; kind: JobKind; runAt: number; payload: string | null }[]
-      let ok = 0
-      for (const j of jobs) {
-        try {
-          await this.handlers[j.kind](j.payload ? JSON.parse(j.payload) : {}, now)
-          this.db.prepare('UPDATE jobs SET done=1 WHERE id=?').run(j.id)
-          ok++
-        } catch (e) {
-          this.log(`job ${j.kind}#${j.id} failed`, e)
-          // повтор на следующем тике, но не дольше 30 минут после run_at
-          if (now - j.runAt >= RETRY_MS) this.db.prepare('UPDATE jobs SET done=1 WHERE id=?').run(j.id)
-        }
+  private finish(id: number, now: number, dropped: boolean): void {
+    this.db.prepare(
+      "UPDATE jobs SET done=1, done_at=?, payload=CASE WHEN ? THEN json_set(COALESCE(payload,'{}'),'$.dropped',json('true')) ELSE payload END WHERE id=?"
+    ).run(now, dropped ? 1 : 0, id)
+  }
+
+  /** Просроченный дайджест после дедлайна и повторный дайджест/бэкап за день не выполняем. */
+  private skip(j: { kind: JobKind; runAt: number }, now: number): boolean {
+    if (j.kind === 'digest' && now >= atLocal(now, this.cfg?.().latestCatchUp ?? '12:00') && j.runAt < atLocal(now, this.cfg?.().latestCatchUp ?? '12:00')) return true
+    return (j.kind === 'digest' || j.kind === 'backup') && this.doneToday(j.kind, now)
+  }
+
+  tick(): Promise<number> {
+    if (this.inflight) return Promise.resolve(0)
+    const p = this.runTick().finally(() => { this.inflight = null })
+    this.inflight = p
+    return p
+  }
+
+  private async runTick(): Promise<number> {
+    const now = this.now()
+    if (this.cfg) this.ensureDaily(now, this.cfg())
+    const jobs = this.db.prepare('SELECT id, kind, run_at AS runAt, payload FROM jobs WHERE done=0 AND run_at<=? ORDER BY run_at, id LIMIT ?')
+      .all(now, BATCH) as { id: number; kind: JobKind; runAt: number; payload: string | null }[]
+    let ok = 0
+    for (const j of jobs) {
+      if (this.skip(j, now)) { this.finish(j.id, now, true); continue }
+      try {
+        await this.handlers[j.kind](j.payload ? JSON.parse(j.payload) : {}, now)
+        this.finish(j.id, now, false)
+        ok++
+      } catch (e) {
+        this.log(`job ${j.kind}#${j.id} failed`, e)
+        // повтор на следующем тике, но не дольше 30 минут после run_at
+        if (now - j.runAt >= RETRY_MS) this.finish(j.id, now, true)
       }
-      return ok
-    } finally { this.running = false }
+    }
+    if (this.cfg) this.ensureDaily(now, this.cfg()) // следующие задачи сразу, без ожидания тика
+    return ok
   }
 
   start(intervalMs = 60_000): void {
@@ -92,7 +103,16 @@ export class Scheduler {
     run() // догон сразу после запуска
     this.timer = setInterval(run, intervalMs)
   }
-  stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null }
+  /** Останавливает таймер и ждёт текущий тик (не дольше 10 с), чтобы БД не закрылась под ним. */
+  async stop(): Promise<void> {
+    if (this.timer) clearInterval(this.timer)
+    this.timer = null
+    if (!this.inflight) return
+    let t: NodeJS.Timeout
+    const limit = new Promise<void>((r) => { t = setTimeout(r, 10_000) })
+    await Promise.race([this.inflight.then(() => undefined, () => undefined), limit])
+    clearTimeout(t!)
+  }
 }
 
 /** Пересчёт score по всем (категория, город), где есть «написали». */

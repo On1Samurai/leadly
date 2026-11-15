@@ -92,4 +92,11 @@ function maybeQuit(): void {
 
 app.on('window-all-closed', maybeQuit)
 
-app.on('before-quit', () => { scheduler?.stop(); scheduler = null; db?.close(); db = null })
+// закрываем БД только после того, как текущий тик планировщика закончился
+let quitting = false
+app.on('before-quit', (e) => {
+  if (quitting) return
+  quitting = true
+  e.preventDefault()
+  void (scheduler?.stop() ?? Promise.resolve()).finally(() => { scheduler = null; db?.close(); db = null; app.quit() })
+})

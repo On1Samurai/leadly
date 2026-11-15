@@ -149,3 +149,49 @@ describe('noreplyRescore', () => {
     expect(sc(n)).toBe(0)
   })
 })
+
+describe('fix round: stale / double send', () => {
+  const sent = (k: string): number => calls.filter((c) => c === k).length
+  it('stale pending digest at 15:00 next day: not sent, tomorrow 09:00 scheduled', async () => {
+    const s = new Scheduler(db, fake(), () => at(15, 0, 16), () => S)
+    s.add('digest', at(9, 0, 16)) // уже «завтрашний» (по времени) pending, но сейчас 15:00
+    await s.tick()
+    expect(sent('digest')).toBe(0)
+    expect(pending('digest').map((j) => j.run_at)).toEqual([at(9, 0, 17)])
+  })
+  it('app closed 2 days, started 10:00: exactly one digest and one backup', async () => {
+    const s = new Scheduler(db, fake(), () => at(10, 0, 17), () => S)
+    s.add('digest', at(9, 0, 15)); s.add('backup', at(4, 0, 15))
+    await s.tick(); await s.tick()
+    expect(sent('digest')).toBe(1)
+    expect(sent('backup')).toBe(1)
+    expect(pending('digest')[0].run_at).toBe(at(9, 0, 18))
+    expect(pending('backup')[0].run_at).toBe(at(4, 0, 18))
+  })
+  it('dropped (failed 30 min) job does not count as done today', async () => {
+    let now = at(10, 0)
+    const s = new Scheduler(db, fake({ digest: async () => { throw new Error('x') } }), () => now, () => S, () => undefined)
+    await s.tick(); now = at(10, 40); await s.tick()
+    // пока дайджест не отправлен сегодня и до 12:00, новый ставится на сейчас
+    expect(pending('digest')[0].run_at).toBe(at(10, 40))
+  })
+  it('done_at is set on completion', async () => {
+    const s = new Scheduler(db, fake(), () => at(10))
+    s.add('reminder', at(9), { placeId: 1 })
+    await s.tick()
+    expect((db.prepare('SELECT done_at d FROM jobs').get() as { d: number }).d).toBe(at(10))
+  })
+  it('stop waits for in-flight tick', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const s = new Scheduler(db, fake({ backup: () => gate }), () => at(10))
+    s.add('backup', at(9))
+    const t = s.tick()
+    let stopped = false
+    const st = s.stop().then(() => { stopped = true })
+    await new Promise((r) => setTimeout(r, 30))
+    expect(stopped).toBe(false)
+    release(); await t; await st
+    expect(stopped).toBe(true)
+  })
+})
