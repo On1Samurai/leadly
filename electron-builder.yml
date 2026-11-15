@@ -27,10 +27,13 @@ publish:
   provider: github
   owner: On1Samurai
   repo: leadly
-  releaseType: release
+  # черновик создаёт workflow заранее (иначе exe и blockmap гонятся и создают два релиза), публикует после проверки
+  releaseType: draft
 nsis:
   oneClick: true
   perMachine: false
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   createDesktopShortcut: always
+  # asar без сжатия: при обновлении качается только изменённая часть кода, а не весь asar
+  differentialPackage: store-asar
