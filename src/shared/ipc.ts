@@ -58,7 +58,7 @@ export interface Api {
   today: { get(): Promise<TodayView> }
   mission: { get(): Promise<MissionStep> }
   app: { dataDir(): Promise<string> }
-  bot: { bindCode(): Promise<string>; status(): Promise<{ linked: boolean; running: boolean }> }
+  bot: { bindCode(): Promise<string>; unlink(): Promise<void>; status(): Promise<{ linked: boolean; running: boolean }> }
   backup: { export(): Promise<string | null> }
 }
 
@@ -76,7 +76,7 @@ export const METHODS: MethodMap = {
   today: { get: true },
   mission: { get: true },
   app: { dataDir: true },
-  bot: { bindCode: true, status: true },
+  bot: { bindCode: true, unlink: true, status: true },
   backup: { export: true }
 }
 export type ChannelName = { [G in keyof MethodMap]: `${G}.${keyof MethodMap[G] & string}` }[keyof MethodMap]

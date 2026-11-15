@@ -73,6 +73,7 @@ export const ARGS = {
   'mission.get': none,
   'app.dataDir': none,
   'bot.bindCode': none,
+  'bot.unlink': none,
   'bot.status': none,
   'backup.export': none
 } satisfies Record<ChannelName, z.ZodType>

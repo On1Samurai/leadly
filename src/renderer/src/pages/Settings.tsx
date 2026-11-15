@@ -43,6 +43,36 @@ function NumField({ k, label, hint, value, onCommit, onError }: {
   )
 }
 
+function BotSection({ onError, tokenSaved }: { onError: (m: string | null) => void; tokenSaved: boolean }): React.JSX.Element {
+  const [st, setSt] = useState<{ linked: boolean; running: boolean } | null>(null)
+  const [code, setCode] = useState<string | null>(null)
+  const refresh = (): void => { window.api.bot.status().then(setSt).catch((e) => onError(errText(e))) }
+  useEffect(() => {
+    refresh()
+    const t = setInterval(refresh, 3000) // привязка происходит снаружи, в Telegram
+    return () => clearInterval(t)
+  }, [tokenSaved]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (st?.linked) setCode(null) }, [st?.linked])
+  const getCode = async (): Promise<void> => {
+    try { setCode(await window.api.bot.bindCode()); onError(null) } catch (e) {
+      onError((e as Error).message.includes('bot_not_running') ? 'Бот не запущен: сохраните токен Telegram-бота и проверьте сеть' : errText(e))
+    }
+  }
+  const unlink = async (): Promise<void> => {
+    try { await window.api.bot.unlink(); refresh() } catch (e) { onError(errText(e)) }
+  }
+  return (
+    <Section title="Telegram-бот">
+      <p className="text-sm">{st?.linked ? 'привязан ✓' : 'не привязан'}</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="ghost" onClick={getCode}>Получить код привязки</Button>
+        {st?.linked && <Button variant="ghost" onClick={unlink}>Отвязать</Button>}
+      </div>
+      {code && <p className="text-sm">Код: <code className="font-mono text-base">{code}</code>. Отправьте боту /start {code} в течение 10 минут</p>}
+    </Section>
+  )
+}
+
 export function Settings(): React.JSX.Element {
   const [s, setS] = useState<AppSettings>(DEFAULT_SETTINGS)
   const [has, setHas] = useState<Record<SecretName, boolean>>({ anthropic: false, google: false, telegram: false })
@@ -81,6 +111,8 @@ export function Settings(): React.JSX.Element {
         <SecretField {...KEY_HELP.google} saved={has.google} onSave={saveKey('google')} />
         <SecretField {...KEY_HELP.telegram} saved={has.telegram} onSave={saveKey('telegram')} />
       </Section>
+
+      <BotSection onError={setErr} tokenSaved={has.telegram} />
 
       <Section title="Что продаю">
         <SellsPicker sells={s.sells} custom={s.custom} onChange={patch} />

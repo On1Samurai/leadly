@@ -19,10 +19,10 @@ export function createIpc(d: IpcDeps): { handlers: Record<ChannelName, Fn>; isPa
   const t: Table = {}
 
   define(t, 'settings.get', () => loadSettings(db))
-  define(t, 'settings.set', (_e, patch) => saveSettings(db, patch))
+  define(t, 'settings.set', (_e, patch) => { saveSettings(db, patch); d.onSettingsSet?.() })
 
   // секреты: только set и has(boolean). Метода get в IPC нет и быть не должно
-  define(t, 'secrets.set', (_e, name, value) => setSecret(db, name, value, d.secretEnv))
+  define(t, 'secrets.set', (_e, name, value) => { setSecret(db, name, value, d.secretEnv); d.onSecretSet?.(name) })
   define(t, 'secrets.has', () => Object.fromEntries(SECRET_NAMES.map((n) => [n, hasSecret(db, n, d.secretEnv)])))
 
   // геометрию города renderer не присылает: хиты живут в main, save получает только id
@@ -66,8 +66,12 @@ export function createIpc(d: IpcDeps): { handlers: Record<ChannelName, Fn>; isPa
     return dest
   })
 
-  // заглушки: bot.* (Задача 18)
-  for (const n of ['bot.bindCode', 'bot.status'] as const) stub(t, n)
+  if (d.bot) {
+    const bot = d.bot
+    define(t, 'bot.bindCode', () => bot.bindCode())
+    define(t, 'bot.unlink', () => bot.unlink())
+    define(t, 'bot.status', () => bot.status())
+  } else for (const n of ['bot.bindCode', 'bot.unlink', 'bot.status'] as const) stub(t, n)
 
   return { handlers: t as Record<ChannelName, Fn>, isPassRunning: pass.isRunning }
 }

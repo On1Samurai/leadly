@@ -26,6 +26,11 @@ export interface IpcDeps {
   openExternal: (url: string) => Promise<void>
   /** clipboard.writeText */
   writeClipboard: (text: string) => void
+  /** Telegram-бот (Задача 18); без него bot.* отвечают not_implemented. */
+  bot?: { status(): { linked: boolean; running: boolean }; bindCode(): string; unlink(): void }
+  /** Сменился секрет (токен бота) или настройка (автозапуск, фон). */
+  onSecretSet?: (name: string) => void
+  onSettingsSet?: () => void
   anthropicFactory: (apiKey: string) => Pick<Anthropic, 'beta'>
 }
 

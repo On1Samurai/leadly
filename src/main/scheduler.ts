@@ -17,6 +17,7 @@ export interface DailyCfg { digestTime: string; latestCatchUp: string }
 
 const RETRY_MS = 30 * 60_000
 const BATCH = 50
+const BACKUP_COOLDOWN_MS = 60 * 60_000
 export const BACKUP_TIME = '04:00'
 
 /** Когда ставить ежедневную задачу: сегодня в `time`; уже прошло и сегодня не делали — сейчас (если до `deadline`), иначе завтра. */
@@ -50,9 +51,17 @@ export class Scheduler {
     ).get(kind, startOfDay(now), atLocal(now, '00:00', 1))
   }
 
+  /** После брошенного бэкапа следующая попытка не раньше чем через час, иначе он ставится заново на каждом тике. */
+  private backupCooldownEnd(): number {
+    const r = this.db.prepare(
+      "SELECT MAX(done_at) AS t FROM jobs WHERE kind='backup' AND done=1 AND COALESCE(json_extract(payload,'$.dropped'),0)=1"
+    ).get() as { t: number | null }
+    return r.t === null ? 0 : r.t + BACKUP_COOLDOWN_MS
+  }
+
   ensureDaily(now: number, s: DailyCfg): void {
     if (!this.hasPending('digest')) this.add('digest', nextDaily(now, s.digestTime, this.doneToday('digest', now), s.latestCatchUp))
-    if (!this.hasPending('backup')) this.add('backup', nextDaily(now, BACKUP_TIME, this.doneToday('backup', now)))
+    if (!this.hasPending('backup')) this.add('backup', Math.max(nextDaily(now, BACKUP_TIME, this.doneToday('backup', now)), this.backupCooldownEnd()))
     if (!this.hasPending('noreply')) this.add('noreply', nextHour(now))
   }
 

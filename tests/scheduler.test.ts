@@ -195,3 +195,17 @@ describe('fix round: stale / double send', () => {
     expect(stopped).toBe(true)
   })
 })
+
+describe('backup cooldown', () => {
+  it('dropped backup is not re-queued for 1 hour', async () => {
+    let now = at(10, 31)
+    let n = 0
+    const s = new Scheduler(db, fake({ backup: async () => { n++; throw new Error('x') } }), () => now, () => S, () => undefined)
+    s.add('backup', at(10)) // уже просрочен на 31 минуту: брошенный
+    await s.tick()
+    expect(n).toBe(1)
+    expect(pending('backup')[0].run_at).toBeGreaterThanOrEqual(at(11, 31))
+    now = at(10, 45); await s.tick()
+    expect(n).toBe(1)
+  })
+})
