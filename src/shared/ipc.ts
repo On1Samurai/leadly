@@ -35,7 +35,7 @@ export interface PlaceDetails extends Omit<Place, 'score'> {
 }
 export interface TodayView { goal: number; written: number; remindToday: PlaceView[]; replied: PlaceView[]; leftToday: number }
 
-export type WriteOpen = { url: string | null; prefilled: boolean; left: number } | { blocked: true }
+export type WriteOpen = { url: string | null; prefilled: boolean; left: number } | { blocked: true; limit: number }
 
 export interface Api {
   settings: { get(): Promise<AppSettings>; set(patch: Partial<AppSettings>): Promise<void> }
@@ -53,7 +53,7 @@ export interface Api {
     refreshGoogle(id: number): Promise<void>; remove(id: number): Promise<void>
   }
   message: { generate(id: number, tone: Tone): Promise<{ text: string; cached: boolean }> }
-  write: { open(id: number, ch: Channel, text: string): Promise<WriteOpen>; confirm(id: number, ch: Channel, text: string): Promise<void> }
+  write: { status(): Promise<{ left: number; limit: number }>; open(id: number, ch: Channel, text: string): Promise<WriteOpen>; confirm(id: number, ch: Channel, text: string): Promise<void> }
   audit: { run(id: number): Promise<void>; screenshot(id: number): Promise<string | null> }
   today: { get(): Promise<TodayView> }
   mission: { get(): Promise<MissionStep> }
@@ -71,7 +71,7 @@ export const METHODS: MethodMap = {
   pass: { start: true, pause: true, resume: true, stop: true, status: true, cells: true },
   places: { list: true, counts: true, nextCandidates: true, get: true, toBase: true, setStatus: true, remind: true, note: true, setDeal: true, refreshGoogle: true, remove: true },
   message: { generate: true },
-  write: { open: true, confirm: true },
+  write: { status: true, open: true, confirm: true },
   audit: { run: true, screenshot: true },
   today: { get: true },
   mission: { get: true },

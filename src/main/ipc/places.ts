@@ -118,6 +118,10 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
   define(t, 'places.setStatus', (_e, id, st) => {
     const p = need(db, id)
     setStatus(db, id, st, d.now())
+    if (p.status === 'later' && st !== 'later') { // напоминание больше не нужно
+      updatePlace(db, id, { remindAt: null })
+      db.prepare("DELETE FROM jobs WHERE kind='reminder' AND done=0 AND json_extract(payload,'$.placeId')=?").run(id)
+    }
     rescorePlace(db, p, d.now()) // ответил/отказ/сделка меняют историю ответов категории
   })
   define(t, 'places.remind', (_e, id, at) => {

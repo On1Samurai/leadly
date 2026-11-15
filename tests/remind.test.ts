@@ -23,5 +23,9 @@ describe('remindAt', () => {
     expect(parseDateInput('2026-12-31')).toEqual({ date: '2026-12-31' })
     expect(parseDateInput('')).toBeNull()
     expect(parseDateInput('2026-13-40')).toBeNull()
+    // прошлое отклоняется; сегодня после 10:00 тоже
+    expect(parseDateInput('2026-11-13', now)).toBeNull()
+    expect(parseDateInput('2026-11-14', now)).toBeNull()
+    expect(parseDateInput('2026-11-15', now)).toEqual({ date: '2026-11-15' })
   })
 })

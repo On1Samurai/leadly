@@ -28,19 +28,29 @@ function targetOf(d: IpcDeps, p: Place, ch: Channel): { phoneE164?: string; hand
 export function writeHandlers(t: Table, d: IpcDeps): void {
   const { db } = d
 
+  define(t, 'write.status', () => {
+    const limit = loadSettings(db).dailyWriteLimit
+    return { left: dailyGate(db, d.now(), limit).left, limit }
+  })
+
   define(t, 'write.open', async (_e, id, ch, text): Promise<WriteOpen> => {
     const p = getPlace(db, id)
     if (!p) throw new Error('not_found')
     const now = d.now()
     const gate = dailyGate(db, now, loadSettings(db).dailyWriteLimit)
-    if (!gate.allowed) return { blocked: true }
+    const limit = loadSettings(db).dailyWriteLimit
+    if (!gate.allowed) return { blocked: true, limit }
     const link = buildLink(ch, targetOf(d, p, ch), text)
     const url = link ? safeExternalUrl(link.url) : null
     d.writeClipboard(text)
     countOpen(db, now)
     const left = Math.max(0, gate.left - 1)
     if (!url) return { url: null, prefilled: false, left }
-    await d.openExternal(url)
+    try {
+      await d.openExternal(url)
+    } catch {
+      return { url: null, prefilled: false, left } // нет обработчика ссылки: текст уже в буфере
+    }
     return { url, prefilled: link?.prefilled ?? false, left }
   })
 

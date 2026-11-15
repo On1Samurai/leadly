@@ -64,6 +64,7 @@ export const ARGS = {
   'places.refreshGoogle': z.tuple([id]),
   'places.remove': z.tuple([id]),
   'message.generate': z.tuple([id, z.enum(['business', 'friendly', 'short'])]),
+  'write.status': none,
   'write.open': z.tuple([id, channel, z.string().min(1).max(1000)]),
   'write.confirm': z.tuple([id, channel, z.string().min(1).max(1000)]),
   'audit.run': z.tuple([id]),

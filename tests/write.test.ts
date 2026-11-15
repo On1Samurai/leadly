@@ -62,7 +62,7 @@ describe('write.* и воронка', () => {
     setSetting(db, 'app', { dailyWriteLimit: 2 })
     const id = mk(); const h = buildHandlers(deps())
     await h['write.open'](ev, id, 'call', 'x'); await h['write.open'](ev, id, 'call', 'x')
-    expect(await h['write.open'](ev, id, 'call', 'x')).toEqual({ blocked: true })
+    expect(await h['write.open'](ev, id, 'call', 'x')).toEqual({ blocked: true, limit: 2 })
     expect(copied).toHaveLength(2); expect(opened).toHaveLength(2)
   })
 
@@ -140,5 +140,57 @@ describe('write.* и воронка', () => {
     expect(getPlace(db, a)!.dealAmount).toBe(150000)
     await h['places.setDeal'](ev, a, null)
     expect(getPlace(db, a)!.dealAmount).toBeNull()
+  })
+})
+
+describe('write: доп. случаи', () => {
+  let dir: string, db: Db
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'll-write2-')); db = openDb(join(dir, 't.db'))
+    db.prepare('INSERT INTO cities(id,name,country,bbox,created_at) VALUES (1,?,?,?,0)').run('T', 'BY', '{}')
+  })
+  afterEach(() => { db.close(); rmSync(dir, { recursive: true, force: true }) })
+  const now = new Date(2026, 10, 14, 12, 0).getTime()
+  const deps = (over: Partial<IpcDeps> = {}): IpcDeps => ({
+    db, secretEnv: { safeStorage: { isEncryptionAvailable: () => true, encryptString: (s: string) => Buffer.from(s), decryptString: (b: Buffer) => b.toString() }, isDev: false, env: {} },
+    userDataDir: dir, auditQueue: new AuditQueue(1, async () => undefined), now: () => now, rng: Math.random,
+    osm: async () => [], saveDialog: async () => null, anthropicFactory: () => { throw new Error('unused') },
+    openExternal: async () => undefined, writeClipboard: () => undefined, ...over
+  })
+  const mk = (over: Partial<Omit<Place, 'id'>> = {}): number => insertPlace(db, {
+    name: 'P', category: 'cafe', lat: 0, lon: 0, address: null, cityId: 1, cellId: null, phoneE164: '+375291234567',
+    phoneType: 'mobile', website: null, webClass: 'none', rating: null, reviews: null, googlePlaceId: null, osmId: null,
+    googleFetchedAt: null, status: 'new', inBase: true, remindAt: null, score: 0, scoreReason: '', createdAt: 0, dealAmount: null, ...over
+  })
+
+  it('удаление места убирает его задачи', async () => {
+    const a = mk(), b = mk(); const h = buildHandlers(deps())
+    await h['places.remind'](ev, a, now + 1000); await h['places.remind'](ev, b, now + 1000)
+    await h['places.remove'](ev, a)
+    expect(db.prepare('SELECT payload FROM jobs').all()).toEqual([{ payload: JSON.stringify({ placeId: b }) }])
+  })
+
+  it('blocked несёт limit, write.status отдаёт left/limit', async () => {
+    setSetting(db, 'app', { dailyWriteLimit: 1 })
+    const a = mk(); const h = buildHandlers(deps())
+    expect(await h['write.status'](ev)).toEqual({ left: 1, limit: 1 })
+    await h['write.open'](ev, a, 'call', 'x')
+    expect(await h['write.status'](ev)).toEqual({ left: 0, limit: 1 })
+    expect(await h['write.open'](ev, a, 'call', 'x')).toEqual({ blocked: true, limit: 1 })
+  })
+
+  it('openExternal отклонил — url null, текст в буфере, счёт учтён', async () => {
+    const copied: string[] = []
+    const a = mk(); const h = buildHandlers(deps({ openExternal: async () => { throw new Error('no handler') }, writeClipboard: (t) => { copied.push(t) } }))
+    expect(await h['write.open'](ev, a, 'viber', 'x')).toEqual({ url: null, prefilled: false, left: 29 })
+    expect(copied).toEqual(['x'])
+  })
+
+  it('уход из later снимает remind_at и задачу', async () => {
+    const a = mk({ status: 'written' }); const h = buildHandlers(deps())
+    await h['places.remind'](ev, a, now + 1000)
+    await h['places.setStatus'](ev, a, 'replied')
+    expect(getPlace(db, a)!.remindAt).toBeNull()
+    expect(db.prepare('SELECT COUNT(*) n FROM jobs WHERE done=0').get()).toEqual({ n: 0 })
   })
 })

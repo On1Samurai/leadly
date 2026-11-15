@@ -111,7 +111,7 @@ export function Venue({ d, onChanged, onRemoved }: Props): React.JSX.Element {
 
 function useEsc(onClose: () => void): void {
   useEffect(() => {
-    const h = (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }
+    const h = (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose() } }
     window.addEventListener('keydown', h, true)
     return () => window.removeEventListener('keydown', h, true)
   }, [onClose])

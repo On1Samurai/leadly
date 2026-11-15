@@ -53,10 +53,10 @@ export function PlaceDrawer({ id, ids, total, onMove, onClose, onChanged, onRemo
   useEffect(() => {
     if (id === null) return
     const h = (e: KeyboardEvent): void => {
-      if (document.querySelector('[data-overlay]')) return
-      if (e.key === 'Escape') { onClose(); return }
+      if (e.defaultPrevented || document.querySelector('[data-overlay]')) return
       const el = e.target as HTMLElement | null
-      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return
+      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return // Esc в поле ввода не закрывает панель
+      if (e.key === 'Escape') { onClose(); return }
       if (e.key === 'ArrowLeft') move(-1)
       else if (e.key === 'ArrowRight') move(1)
     }
@@ -86,7 +86,7 @@ export function PlaceDrawer({ id, ids, total, onMove, onClose, onChanged, onRemo
         {err && <p role="alert" className="text-danger">{err}</p>}
         {!d && !err && <p className="text-sm text-muted">Загрузка…</p>}
         {/* Now не размонтируем при смене вкладки: иначе потеряется правка текста */}
-        {d && <div hidden={tab !== 'now'}><Now key={d.id} d={d} tone={tone} limit={settings.dailyWriteLimit} onTone={setTone} onWritten={changed} /></div>}
+        {d && <div hidden={tab !== 'now'}><Now key={d.id} d={d} tone={tone} onTone={setTone} onWritten={changed} /></div>}
         {d && tab === 'chat' && <Chat d={d} onChanged={() => load(d.id)} />}
         {d && tab === 'venue' && <Venue d={d} onChanged={changed} onRemoved={() => onRemoved(d.id)} />}
         {d && tab === 'work' && <Work d={d} country={settings.country} onChanged={changed} />}

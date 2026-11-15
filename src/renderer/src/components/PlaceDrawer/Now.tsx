@@ -13,15 +13,19 @@ const MAX = 1000
 
 interface Pending { ch: Channel; text: string; hint: string }
 
-interface Props { d: PlaceDetails; tone: Tone; limit: number; onTone: (t: Tone) => void; onWritten: () => void }
+interface Props { d: PlaceDetails; tone: Tone; onTone: (t: Tone) => void; onWritten: () => void }
 
-export function Now({ d, tone, limit, onTone, onWritten }: Props): React.JSX.Element {
+export function Now({ d, tone, onTone, onWritten }: Props): React.JSX.Element {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [pending, setPending] = useState<Pending | null>(null)
+  const [left, setLeft] = useState<number | null>(null)
+  const [sending, setSending] = useState(false)
   const req = useRef(0)
+
+  useEffect(() => { window.api.write.status().then((s) => setLeft(s.left)).catch(() => undefined) }, [d.id])
 
   const generate = useCallback(() => {
     const r = ++req.current
@@ -36,25 +40,29 @@ export function Now({ d, tone, limit, onTone, onWritten }: Props): React.JSX.Ele
   useEffect(() => { setPending(null); setNote(null); generate(); return () => { req.current++ } }, [generate])
 
   const write = (ch: Channel): void => {
-    setNote(null)
+    setNote(null); setSending(true)
     window.api.write.open(d.id, ch, text)
       .then((r) => {
-        if ('blocked' in r) { setPending(null); setNote(`Лимит на сегодня исчерпан (${limit}). Завтра снова можно`); return }
+        if ('blocked' in r) { setPending(null); setLeft(0); setNote(`Лимит на сегодня исчерпан (${r.limit}). Завтра снова можно`); return }
+        setLeft(r.left)
         const hint = r.url === null ? 'Текст скопирован — откройте мессенджер вручную'
           : r.prefilled ? 'Текст подставлен в сообщение' : 'Текст скопирован — вставьте его в чат (Ctrl+V)'
         setPending({ ch, text, hint })
       })
       .catch((e) => setNote(errText(e)))
+      .finally(() => setSending(false))
   }
 
   const confirm = (): void => {
-    if (!pending) return
+    if (!pending || sending) return
+    setSending(true)
     window.api.write.confirm(d.id, pending.ch, pending.text)
       .then(() => { setPending(null); onWritten() })
       .catch((e) => setNote(errText(e)))
+      .finally(() => setSending(false))
   }
 
-  const bad = text.trim() === '' || text.length > MAX
+  const bad = text.trim() === '' || text.length > MAX || left === 0 || sending || pending !== null
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -91,7 +99,7 @@ export function Now({ d, tone, limit, onTone, onWritten }: Props): React.JSX.Ele
           <p className="text-sm text-muted">{pending.hint}</p>
           <p className="font-semibold">Отправили?</p>
           <div className="flex gap-2">
-            <Button onClick={confirm}>Да</Button>
+            <Button disabled={sending} onClick={confirm}>Да</Button>
             <Button variant="ghost" onClick={() => setPending(null)}>Нет</Button>
           </div>
         </div>

@@ -126,6 +126,7 @@ export function deletePlaceForever(db: Db, id: number): string[] {
   return db.transaction(() => {
     const shots = (db.prepare('SELECT screenshot FROM audits WHERE place_id=? AND screenshot IS NOT NULL').all(id) as { screenshot: string }[])
       .map((r) => r.screenshot)
+    db.prepare("DELETE FROM jobs WHERE json_extract(payload,'$.placeId')=?").run(id)
     for (const t of ['contacts', 'audits', 'messages', 'status_log']) db.prepare(`DELETE FROM ${t} WHERE place_id=?`).run(id)
     db.prepare('DELETE FROM places WHERE id=?').run(id)
     return shots

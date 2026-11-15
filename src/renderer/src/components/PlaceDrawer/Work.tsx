@@ -20,7 +20,7 @@ export function Work({ d, country, onChanged }: Props): React.JSX.Element {
 
   const act = (p: Promise<void>): void => { setErr(null); p.then(onChanged).catch((e) => setErr(errText(e))) }
   const remind = (preset: RemindPreset): void => act(window.api.places.remind(d.id, remindAt(Date.now(), preset)))
-  const picked = parseDateInput(date)
+  const picked = parseDateInput(date, Date.now())
 
   const saveDeal = (): void => {
     const t = deal.trim().replace(',', '.')
