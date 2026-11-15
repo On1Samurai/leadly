@@ -1,4 +1,6 @@
-export interface PassCounters { cellsDone: number; cellsTotal: number; newCount: number; dupCount: number; googleUsed: number; budget: number }
+import type { PassCounters } from '../search-view'
+
+
 
 export function Counters({ c }: { c: PassCounters }): React.JSX.Element {
   const items: [string, string][] = [

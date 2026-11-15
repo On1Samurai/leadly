@@ -12,6 +12,8 @@ export type PassEvent =
   | { type: 'cell'; cellId: number; ix: number; iy: number; newCount: number; dupCount: number; googleRequests: number }
   | { type: 'warning'; text: string }
   | { type: 'done'; summary: PassSummary }
+export interface PassCountersView { cellsDone: number; cellsTotal: number; newCount: number; dupCount: number; googleUsed: number }
+export interface PassStatus { running: boolean; cityId: number | null; paused: boolean; counters: PassCountersView; warnings: string[] }
 export interface PlaceFilter {
   cityId?: number; inBase?: boolean; webClass?: WebClass[]; status?: Status[]; category?: string
   sort: 'score' | 'new'; limit: number; offset: number
@@ -37,7 +39,7 @@ export interface Api {
   city: { search(q: string): Promise<CityHit[]>; save(hit: { id: string }): Promise<number>; list(): Promise<{ id: number; name: string }[]> }
   pass: {
     start(p: { cityId: number; categoryId: string }): Promise<void>; pause(): Promise<void>; resume(): Promise<void>
-    stop(): Promise<void>; status(): Promise<{ running: boolean; cityId: number | null }>; cells(cityId: number): Promise<CellView[]>; onEvent(cb: (e: PassEvent) => void): () => void
+    stop(): Promise<void>; status(): Promise<PassStatus>; cells(cityId: number): Promise<CellView[]>; onEvent(cb: (e: PassEvent) => void): () => void
   }
   places: {
     list(f: PlaceFilter): Promise<PlaceView[]>; get(id: number): Promise<PlaceDetails>
