@@ -216,4 +216,53 @@ describe('ipc', () => {
     expect(existsSync(inside)).toBe(false)
     expect(existsSync(outside)).toBe(true)
   })
+  it('places.counts считает по всем подходящим, не по странице', async () => {
+    addCity()
+    for (let i = 0; i < 7; i++) insertPlace(db, mkPlace({ webClass: 'none', inBase: i < 5 }))
+    for (let i = 0; i < 3; i++) insertPlace(db, mkPlace({ webClass: 'template', inBase: true }))
+    insertPlace(db, mkPlace({ webClass: 'social', inBase: true, category: 'bar' }))
+    insertPlace(db, mkPlace({ webClass: 'own', inBase: true }))
+    const h = buildHandlers(mkDeps(env()))
+    const ev = {} as never
+    expect(await h['places.counts'](ev, {})).toEqual({ total: 12, none: 7, template: 3, social: 1, own: 1 })
+    expect(await h['places.counts'](ev, { inBase: true })).toEqual({ total: 10, none: 5, template: 3, social: 1, own: 1 })
+    // фильтр по типу сайта сужает total, но не разбивку
+    expect(await h['places.counts'](ev, { inBase: true, webClass: ['none'] })).toEqual({ total: 5, none: 5, template: 3, social: 1, own: 1 })
+    expect(await h['places.counts'](ev, { category: 'bar' })).toEqual({ total: 1, none: 0, template: 0, social: 1, own: 0 })
+  })
+
+  it('places.list: каналы в PlaceView, фильтры category/webClass/status', async () => {
+    addCity()
+    const a = insertPlace(db, mkPlace({ phoneE164: '+375291234567', phoneType: 'mobile', category: 'bar', status: 'written' }))
+    insertPlace(db, mkPlace({ webClass: 'own' }))
+    const h = buildHandlers(mkDeps(env()))
+    const ev = {} as never
+    const f = { sort: 'score', limit: 60, offset: 0 }
+    const r = (await h['places.list'](ev, { ...f, category: 'bar', webClass: ['none'], status: ['written'] })) as { id: number; channels: string[] }[]
+    expect(r.map((x) => x.id)).toEqual([a])
+    expect(r[0].channels).toContain('call')
+  })
+
+  it('places.nextCandidates: просроченные, ответившие, лучшие новые; не больше 50', async () => {
+    addCity()
+    const old = insertPlace(db, mkPlace({ name: 'old', remindAt: 100, status: 'written' }))
+    insertPlace(db, mkPlace({ name: 'future', remindAt: 5000, status: 'written' }))
+    const rep = insertPlace(db, mkPlace({ name: 'rep', status: 'replied', inBase: true }))
+    const ins = db.prepare('INSERT INTO messages(place_id,direction,channel,text,created_at) VALUES (?,?,NULL,?,?)')
+    ins.run(rep, 'in', 'hi', 50); ins.run(rep, 'out', 'yo', 20); ins.run(rep, 'out', 'again', 30)
+    for (let i = 0; i < 80; i++) insertPlace(db, mkPlace({ name: `n${i}`, score: i, inBase: true }))
+    insertPlace(db, mkPlace({ name: 'notInBase', score: 999, inBase: false }))
+    const h = buildHandlers(mkDeps(env()))
+    const r = (await h['places.nextCandidates']({} as never)) as { id: number; name: string; score: number; lastIn: number | null; lastOut: number | null; textReady: boolean; remindAt: number | null }[]
+    expect(r.length).toBeLessThanOrEqual(50)
+    expect(r.find((x) => x.id === old)?.remindAt).toBe(100)
+    expect(r.find((x) => x.name === 'future')).toBeUndefined()
+    expect(r.find((x) => x.id === rep)).toMatchObject({ lastIn: 50, lastOut: 30 })
+    expect(r.find((x) => x.name === 'n79')).toBeDefined()
+    expect(r.find((x) => x.name === 'notInBase')).toBeUndefined()
+    expect(r.find((x) => x.name === 'n0')).toBeUndefined()
+    expect(r.every((x) => x.textReady === false)).toBe(true)
+    // cityId: чужой город даёт пусто
+    expect(await h['places.nextCandidates']({} as never, 99)).toEqual([])
+  })
 })

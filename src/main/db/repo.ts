@@ -1,3 +1,4 @@
+import type { PlaceCounts } from '../../shared/ipc'
 import type { Contact, Place, Status, WebClass } from '../../shared/types'
 import { haversineM } from '../core/geo'
 import type { Db } from './db'
@@ -81,17 +82,30 @@ export interface PlaceFilter {
   sort: 'score' | 'new'; limit: number; offset: number
 }
 
-export function listPlaces(db: Db, f: PlaceFilter): Place[] {
+function whereOf(f: Omit<PlaceFilter, 'sort' | 'limit' | 'offset'>, withWeb = true): { sql: string; args: unknown[] } {
   const where: string[] = []
   const args: unknown[] = []
   if (f.cityId !== undefined) { where.push('city_id=?'); args.push(f.cityId) }
   if (f.inBase !== undefined) { where.push('in_base=?'); args.push(f.inBase ? 1 : 0) }
   if (f.category) { where.push('category=?'); args.push(f.category) }
-  if (f.webClass?.length) { where.push(`web_class IN (${f.webClass.map(() => '?').join(',')})`); args.push(...f.webClass) }
+  if (withWeb && f.webClass?.length) { where.push(`web_class IN (${f.webClass.map(() => '?').join(',')})`); args.push(...f.webClass) }
   if (f.status?.length) { where.push(`status IN (${f.status.map(() => '?').join(',')})`); args.push(...f.status) }
+  return { sql: where.length ? ` WHERE ${where.join(' AND ')}` : '', args }
+}
+
+export function listPlaces(db: Db, f: PlaceFilter): Place[] {
+  const { sql: w, args } = whereOf(f)
   const order = f.sort === 'score' ? 'score DESC, id DESC' : 'created_at DESC, id DESC'
-  const sql = `${SELECT}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY ${order} LIMIT ? OFFSET ?`
-  return (db.prepare(sql).all(...args, f.limit, f.offset) as Row[]).map(fromRow)
+  return (db.prepare(`${SELECT}${w} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...args, f.limit, f.offset) as Row[]).map(fromRow)
+}
+
+export function countPlaces(db: Db, f: Omit<PlaceFilter, 'sort' | 'limit' | 'offset'>): PlaceCounts {
+  const { sql: all, args: a1 } = whereOf(f)
+  const total = (db.prepare(`SELECT COUNT(*) n FROM places${all}`).get(...a1) as { n: number }).n
+  const { sql: w, args } = whereOf(f, false)
+  const out: PlaceCounts = { total, none: 0, template: 0, social: 0, own: 0 }
+  for (const r of db.prepare(`SELECT web_class c, COUNT(*) n FROM places${w} GROUP BY web_class`).all(...args) as { c: WebClass; n: number }[]) out[r.c] = r.n
+  return out
 }
 
 export function setStatus(db: Db, id: number, to: Status, now: number): void {

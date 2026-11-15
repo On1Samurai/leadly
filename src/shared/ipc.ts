@@ -2,6 +2,7 @@ import type { Score } from '../main/core/scoring'
 import type { GeoMultiPolygon, GeoPolygon } from '../main/core/geo'
 import type { AppSettings, Tone } from './settings'
 import type { MissionStep } from './mission'
+import type { NextActionInput } from './nextAction'
 import type { BBox, Channel, Contact, Finding, Place, Status, WebClass } from './types'
 
 export type SecretName = 'anthropic' | 'google' | 'telegram'
@@ -20,7 +21,10 @@ export interface PlaceFilter {
 }
 
 export interface CellView { ix: number; iy: number; bbox: BBox; newCount: number; googleRequests: number }
-export interface PlaceView extends Place { textReady: boolean }
+export interface PlaceView extends Place { textReady: boolean; channels: Channel[] }
+export type PlaceCountsFilter = Omit<PlaceFilter, 'sort' | 'limit' | 'offset'>
+/** total — с учётом всех фильтров; разбивка по сайту — без фильтра webClass (чтобы показывать, что есть вокруг). */
+export interface PlaceCounts { total: number; none: number; template: number; social: number; own: number }
 export interface PlaceDetails extends Omit<Place, 'score'> {
   contacts: Contact[]
   findings: Finding[]
@@ -42,7 +46,8 @@ export interface Api {
     stop(): Promise<void>; status(): Promise<PassStatus>; cells(cityId: number): Promise<CellView[]>; onEvent(cb: (e: PassEvent) => void): () => void
   }
   places: {
-    list(f: PlaceFilter): Promise<PlaceView[]>; get(id: number): Promise<PlaceDetails>
+    list(f: PlaceFilter): Promise<PlaceView[]>; counts(f: PlaceCountsFilter): Promise<PlaceCounts>
+    nextCandidates(cityId?: number): Promise<NextActionInput[]>; get(id: number): Promise<PlaceDetails>
     toBase(id: number, v: boolean): Promise<void>; setStatus(id: number, s: Status): Promise<void>
     remind(id: number, at: number): Promise<void>; note(id: number, dir: 'in' | 'note', text: string): Promise<void>
     refreshGoogle(id: number): Promise<void>; remove(id: number): Promise<void>
@@ -64,7 +69,7 @@ export const METHODS: MethodMap = {
   secrets: { set: true, has: true },
   city: { search: true, save: true, list: true },
   pass: { start: true, pause: true, resume: true, stop: true, status: true, cells: true },
-  places: { list: true, get: true, toBase: true, setStatus: true, remind: true, note: true, refreshGoogle: true, remove: true },
+  places: { list: true, counts: true, nextCandidates: true, get: true, toBase: true, setStatus: true, remind: true, note: true, refreshGoogle: true, remove: true },
   message: { generate: true },
   write: { open: true, confirm: true },
   audit: { run: true, screenshot: true },

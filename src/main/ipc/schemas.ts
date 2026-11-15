@@ -33,6 +33,11 @@ export const SettingsPatchSchema = z.object({
 const status = z.enum(STATUSES)
 const channel = z.enum(CHANNEL_IDS)
 
+const placeFilter = z.object({
+  cityId: id.optional(), inBase: bool.optional(), webClass: z.array(z.enum(['none', 'social', 'template', 'own'])).max(4).optional(),
+  status: z.array(status).max(8).optional(), category: z.string().max(64).optional()
+})
+
 const none = z.tuple([])
 export const ARGS = {
   'settings.get': none,
@@ -45,11 +50,11 @@ export const ARGS = {
   'pass.start': z.tuple([z.object({ cityId: id, categoryId: z.string().min(1).max(64) })]),
   'pass.status': none, 'pass.pause': none, 'pass.resume': none, 'pass.stop': none,
   'pass.cells': z.tuple([id]),
-  'places.list': z.tuple([z.object({
-    cityId: id.optional(), inBase: bool.optional(), webClass: z.array(z.enum(['none', 'social', 'template', 'own'])).max(4).optional(),
-    status: z.array(status).max(8).optional(), category: z.string().max(64).optional(),
+  'places.list': z.tuple([placeFilter.extend({
     sort: z.enum(['score', 'new']), limit: z.number().int().min(1).max(500), offset: z.number().int().min(0)
   })]),
+  'places.counts': z.tuple([placeFilter]),
+  'places.nextCandidates': z.tuple([id.optional()]),
   'places.get': z.tuple([id]),
   'places.toBase': z.tuple([id, bool]),
   'places.setStatus': z.tuple([id, status]),

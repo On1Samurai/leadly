@@ -2,9 +2,10 @@ import { readFileSync, unlinkSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import type { Channel, Contact, Finding, Place } from '../../shared/types'
 import type { PlaceDetails, PlaceView } from '../../shared/ipc'
+import type { NextActionInput } from '../../shared/nextAction'
 import type { AppSettings, Tone } from '../../shared/settings'
 import type { Db } from '../db/db'
-import { deletePlaceForever, getPlace, listPlaces, setStatus, updatePlace } from '../db/repo'
+import { countPlaces, deletePlaceForever, getPlace, listPlaces, setStatus, updatePlace } from '../db/repo'
 import { mergePatch } from '../core/dedup'
 import { channelsFor } from '../core/links'
 import { parsePhone } from '../core/phones'
@@ -31,8 +32,39 @@ export function inputFor(db: Db, p: Place, s: AppSettings, tone: Tone = s.tone):
   return buildMessageInput(p, cityName(db, p.cityId), latestFindings(db, p.id), { sells, tone, lang: s.lang, mode: p.category === 'b2b' ? 'b2b' : 'local' })
 }
 
-export const toView = (db: Db, p: Place, s: AppSettings): PlaceView =>
-  ({ ...p, textReady: isTextReady(inputFor(db, p, s), db) })
+const contactsOf = (db: Db, id: number): Contact[] =>
+  db.prepare('SELECT kind, value FROM contacts WHERE place_id=?').all(id) as Contact[]
+
+export const toView = (db: Db, p: Place, s: AppSettings): PlaceView => ({
+  ...p,
+  textReady: isTextReady(inputFor(db, p, s), db),
+  channels: channelsFor(s.country, contactsOf(db, p.id), p.phoneE164, p.phoneType)
+})
+
+// лимиты блока «Что дальше»: всего не больше 50 строк
+const NEXT_LIMITS = { remind: 10, replied: 15, fresh: 25 }
+const NEXT_SELECT = `SELECT p.id, p.name, p.status, p.remind_at AS remindAt, p.score,
+  (SELECT MAX(created_at) FROM messages m WHERE m.place_id=p.id AND m.direction='in') AS lastIn,
+  (SELECT MAX(created_at) FROM messages m WHERE m.place_id=p.id AND m.direction='out') AS lastOut
+  FROM places p WHERE (? IS NULL OR p.city_id=?)`
+
+type NextRow = Omit<NextActionInput, 'textReady'>
+
+function nextCandidates(db: Db, cityId: number | undefined, now: number, s: AppSettings): NextActionInput[] {
+  const c = cityId ?? null
+  const q = (cond: string, order: string, limit: number, ...extra: unknown[]): NextRow[] =>
+    db.prepare(`${NEXT_SELECT} AND ${cond} ORDER BY ${order} LIMIT ?`).all(c, c, ...extra, limit) as NextRow[]
+  const rows = [
+    ...q('p.remind_at IS NOT NULL AND p.remind_at<=?', 'p.remind_at', NEXT_LIMITS.remind, now),
+    ...q(`p.status='replied' AND lastIn IS NOT NULL AND lastIn > COALESCE(lastOut,0)`, 'lastIn DESC', NEXT_LIMITS.replied),
+    ...q(`p.status='new' AND p.in_base=1`, 'p.score DESC, p.id DESC', NEXT_LIMITS.fresh)
+  ]
+  const seen = new Set<number>()
+  return rows.filter((r) => !seen.has(r.id) && seen.add(r.id)).map((r) => {
+    const p = getPlace(db, r.id)
+    return { ...r, textReady: p ? isTextReady(inputFor(db, p, s), db) : false }
+  })
+}
 
 function need(db: Db, id: number): Place {
   const p = getPlace(db, id)
@@ -51,10 +83,13 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
     return listPlaces(db, f).map((p) => toView(db, p, s))
   })
 
+  define(t, 'places.counts', (_e, f) => countPlaces(db, f))
+  define(t, 'places.nextCandidates', (_e, cityId?: number) => nextCandidates(db, cityId, d.now(), loadSettings(db)))
+
   define(t, 'places.get', (_e, id): PlaceDetails => {
     const p = need(db, id)
     const s = loadSettings(db)
-    const contacts = db.prepare('SELECT kind, value FROM contacts WHERE place_id=?').all(id) as Contact[]
+    const contacts = contactsOf(db, id)
     const messages = (db.prepare('SELECT direction, channel, text, created_at AS createdAt FROM messages WHERE place_id=? ORDER BY id')
       .all(id) as PlaceDetails['messages'])
     const statusLog = (db.prepare('SELECT from_status AS "from", to_status AS "to", at FROM status_log WHERE place_id=? ORDER BY at, rowid')

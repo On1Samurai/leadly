@@ -4,6 +4,7 @@ import { MissionBar } from './components/MissionBar'
 import { Sidebar } from './components/Sidebar'
 import { NavContext, type NavParams, type Page } from './nav'
 import { errText } from './lib'
+import { Base } from './pages/Base'
 import { Help } from './pages/Help'
 import { Onboarding } from './pages/Onboarding'
 import { Search } from './pages/Search'
@@ -45,7 +46,7 @@ function App(): React.JSX.Element {
           <MissionBar step={mission} />
           <div className="min-h-0 flex-1 overflow-y-auto">
             {page === 'search' && <Search />}
-            {page === 'base' && <Soon title="База" />}
+            {page === 'base' && <Base key={params.cityId ?? 'all'} />}
             {page === 'today' && <Soon title="Сегодня" />}
             {page === 'settings' && <Settings />}
             {page === 'help' && <Help />}
