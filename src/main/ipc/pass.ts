@@ -9,6 +9,7 @@ import { define, type IpcDeps, type Table } from './define'
 
 export function passHandlers(t: Table, d: IpcDeps): { isRunning(): boolean } {
   let current: PassControl | null = null
+  let currentCity: number | null = null
 
   define(t, 'pass.start', (e, p) => {
     if (current) throw new Error('pass_running')
@@ -25,6 +26,7 @@ export function passHandlers(t: Table, d: IpcDeps): { isRunning(): boolean } {
     }
     const ctl: PassControl = { paused: false, stopped: false }
     current = ctl
+    currentCity = p.cityId
     const emit = (ev: PassEvent): void => {
       try { e.sender.send(PASS_EVENT, ev) } catch { /* окно закрыто */ }
       if (ev.type === 'done') {
@@ -39,8 +41,9 @@ export function passHandlers(t: Table, d: IpcDeps): { isRunning(): boolean } {
         // UI не должен застрять в «идёт проход»
         emit({ type: 'done', summary: { passId: 0, cellsDone: 0, newCount: 0, dupCount: 0, googleUsed: 0, stopped: true } })
       })
-      .finally(() => { current = null; d.onPassEnd?.() })
+      .finally(() => { current = null; currentCity = null; d.onPassEnd?.() })
   })
+  define(t, 'pass.status', () => ({ running: current !== null, cityId: currentCity }))
   define(t, 'pass.pause', () => { if (current) current.paused = true })
   define(t, 'pass.resume', () => { if (current) current.paused = false })
   define(t, 'pass.stop', () => { if (current) { current.stopped = true; current.paused = false } })

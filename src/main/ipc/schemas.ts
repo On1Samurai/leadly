@@ -43,7 +43,7 @@ export const ARGS = {
   'city.save': z.tuple([z.object({ id: z.string().min(1).max(100) }).strict()]),
   'city.list': none,
   'pass.start': z.tuple([z.object({ cityId: id, categoryId: z.string().min(1).max(64) })]),
-  'pass.pause': none, 'pass.resume': none, 'pass.stop': none,
+  'pass.status': none, 'pass.pause': none, 'pass.resume': none, 'pass.stop': none,
   'pass.cells': z.tuple([id]),
   'places.list': z.tuple([z.object({
     cityId: id.optional(), inBase: bool.optional(), webClass: z.array(z.enum(['none', 'social', 'template', 'own'])).max(4).optional(),

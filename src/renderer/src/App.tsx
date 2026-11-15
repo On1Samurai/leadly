@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { MissionStep } from '../../shared/mission'
 import { MissionBar } from './components/MissionBar'
 import { Sidebar } from './components/Sidebar'
-import { NavContext, type Page } from './nav'
+import { NavContext, type NavParams, type Page } from './nav'
 import { errText } from './lib'
 import { Help } from './pages/Help'
 import { Onboarding } from './pages/Onboarding'
+import { Search } from './pages/Search'
 import { Settings } from './pages/Settings'
 
 const Soon = ({ title }: { title: string }): React.JSX.Element => (
@@ -17,6 +18,7 @@ const Soon = ({ title }: { title: string }): React.JSX.Element => (
 
 function App(): React.JSX.Element {
   const [page, setPage] = useState<Page | null>(null)
+  const [params, setParams] = useState<NavParams>({})
   const [mission, setMission] = useState<MissionStep>(1)
   const [err, setErr] = useState<string | null>(null)
 
@@ -28,8 +30,8 @@ function App(): React.JSX.Element {
     if (page && page !== 'onboarding') window.api.mission.get().then(setMission).catch(() => undefined)
   }, [page])
 
-  const navigate = useCallback((p: Page) => setPage(p), [])
-  const ctx = useMemo(() => ({ page: page ?? 'search', navigate }), [page, navigate])
+  const navigate = useCallback((p: Page, pr?: NavParams) => { setParams(pr ?? {}); setPage(p) }, [])
+  const ctx = useMemo(() => ({ page: page ?? 'search', params, navigate }), [page, params, navigate])
 
   let body: React.JSX.Element
   if (err) body = <p role="alert" className="p-8 text-danger">{err}</p>
@@ -42,7 +44,7 @@ function App(): React.JSX.Element {
         <div className="flex min-w-0 flex-1 flex-col">
           <MissionBar step={mission} />
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {page === 'search' && <Soon title="Поиск" />}
+            {page === 'search' && <Search />}
             {page === 'base' && <Soon title="База" />}
             {page === 'today' && <Soon title="Сегодня" />}
             {page === 'settings' && <Settings />}

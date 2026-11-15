@@ -37,7 +37,7 @@ export interface Api {
   city: { search(q: string): Promise<CityHit[]>; save(hit: { id: string }): Promise<number>; list(): Promise<{ id: number; name: string }[]> }
   pass: {
     start(p: { cityId: number; categoryId: string }): Promise<void>; pause(): Promise<void>; resume(): Promise<void>
-    stop(): Promise<void>; cells(cityId: number): Promise<CellView[]>; onEvent(cb: (e: PassEvent) => void): () => void
+    stop(): Promise<void>; status(): Promise<{ running: boolean; cityId: number | null }>; cells(cityId: number): Promise<CellView[]>; onEvent(cb: (e: PassEvent) => void): () => void
   }
   places: {
     list(f: PlaceFilter): Promise<PlaceView[]>; get(id: number): Promise<PlaceDetails>
@@ -61,7 +61,7 @@ export const METHODS: MethodMap = {
   settings: { get: true, set: true },
   secrets: { set: true, has: true },
   city: { search: true, save: true, list: true },
-  pass: { start: true, pause: true, resume: true, stop: true, cells: true },
+  pass: { start: true, pause: true, resume: true, stop: true, status: true, cells: true },
   places: { list: true, get: true, toBase: true, setStatus: true, remind: true, note: true, refreshGoogle: true, remove: true },
   message: { generate: true },
   write: { open: true, confirm: true },

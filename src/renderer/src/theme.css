@@ -35,3 +35,15 @@ body {
 }
 
 :focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; }
+
+/* карта прогресса: тёмные тайлы OSM, подписи квадратов */
+.leaflet-container { background: var(--color-bg); font-family: var(--font-sans); }
+.leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.75) contrast(0.9); }
+.leaflet-tooltip.cell-label {
+  background: transparent; border: 0; box-shadow: none; padding: 0;
+  color: #fff; font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  text-shadow: 0 0 3px #000, 0 0 3px #000;
+}
+.leaflet-tooltip.cell-label::before { display: none; }
+.leaflet-control-attribution { background: rgba(10, 10, 10, 0.7) !important; color: var(--color-muted) !important; }
+.leaflet-control-attribution a { color: var(--color-muted) !important; }

@@ -104,9 +104,12 @@ describe('ipc', () => {
     db.prepare("INSERT INTO cities(id,name,country,bbox,created_at) VALUES (1,'T','UA','{\"south\":0,\"west\":0,\"north\":0.01,\"east\":0.01}',0)").run()
     await h['pass.start'](ev, { cityId: 1, categoryId: 'cafe' })
     await expect(h['pass.start'](ev, { cityId: 1, categoryId: 'cafe' })).rejects.toThrow('pass_running')
+    expect(await h['pass.status'](ev)).toEqual({ running: true, cityId: 1 })
     release()
     for (let i = 0; i < 100 && !events.some((e) => (e as { type?: string }).type === 'done'); i++) await new Promise((r) => setTimeout(r, 20))
     expect(events.some((e) => (e as { type?: string }).type === 'done')).toBe(true)
+    for (let i = 0; i < 50 && (await h['pass.status'](ev) as { running: boolean }).running; i++) await new Promise((r) => setTimeout(r, 20))
+    expect(await h['pass.status'](ev)).toEqual({ running: false, cityId: null })
   })
 
   it('stubs throw not_implemented', async () => {
