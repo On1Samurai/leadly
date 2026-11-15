@@ -2,12 +2,42 @@
 
 Windows-приложение (Electron + React + TypeScript + SQLite): поиск локального бизнеса без сайта.
 
+## Установка
+
+1. Скачайте `local-leads-<версия>-setup.exe` (из артефакта сборки, см. «Сборка .exe») и запустите. Установка в один клик, без прав администратора, ярлык появится на рабочем столе.
+2. Windows может показать предупреждение SmartScreen («Windows защитила ваш компьютер»). Причина: у программы пока нет сертификата подписи кода. Нажмите «Подробнее», затем «Выполнить в любом случае».
+3. Удаление: «Параметры» → «Приложения» → «Установка и удаление программ».
+
+## Первый запуск
+
+Онбординг попросит ключи:
+
+- Anthropic API: обязателен (оценка, аудит, сообщения). Создаётся на console.anthropic.com → API Keys.
+- Google Places API: необязателен, даёт дополнительный источник. Ключ создаётся в Google Cloud Console (включить Places API).
+- Telegram-бот: необязателен, для уведомлений. Токен выдаёт @BotFather (`/newbot`).
+
+## Где лежат данные
+
+`%APPDATA%\Local Leads`: база, настройки и резервные копии.
+
+## Резервные копии
+
+Копия базы создаётся автоматически раз в день, хранятся последние 7. Ключи в копии не попадают. Разовая копия: «Настройки» → «Экспорт БД».
+
+## Программа сама ничего не отправляет
+
+Сообщения клиентам не уходят автоматически: «Написать» копирует текст в буфер обмена и открывает чат. Отправляете вы сами.
+
 ## Разработка
 
 Нужен Node 22 (`.nvmrc`). Команды: `npm install`, `npm run dev`, `npm test`, `npm run build`.
 
 `postinstall` пересобирает нативные модули под Electron (`electron-builder install-app-deps`), нужен компилятор C++.
-На Linux-машине разработки без компилятора: `LL_SKIP_NATIVE_REBUILD=1 npm install`.
-На чистой установке npm сам запускает `node-gyp rebuild` для better-sqlite3 (есть binding.gyp), и без компилятора это падает до postinstall. Тогда: `npm install --ignore-scripts && node node_modules/electron/install.js && LL_SKIP_NATIVE_REBUILD=1 node scripts/postinstall.mjs`.
-better-sqlite3 13 поставляется с готовыми N-API-бинарниками, для разработки и тестов этого достаточно.
-Для релизной сборки используйте обычный `npm install` на Windows-машине с инструментами сборки.
+Без компилятора (например, Linux-машина разработки) `npm install` падает ещё до postinstall: npm сам запускает `node-gyp rebuild` для better-sqlite3 (есть binding.gyp). Тогда:
+`npm install --ignore-scripts && node node_modules/electron/install.js && LL_SKIP_NATIVE_REBUILD=1 node scripts/postinstall.mjs`.
+`LL_SKIP_NATIVE_REBUILD=1` только пропускает пересборку в postinstall; better-sqlite3 13 поставляется с готовыми N-API-бинарниками, для разработки и тестов этого достаточно.
+Для релизной сборки не используйте этот обход: нужен обычный `npm install` на Windows с инструментами сборки.
+
+## Сборка .exe
+
+GitHub Actions, workflow `build-win` (Actions → build-win → Run workflow, либо тег `v*`). Шаги: `npm ci`, пересборка нативных модулей, тесты, `npm run build:win`, проверка упаковки better-sqlite3. Установщик скачивается из артефакта `local-leads-setup`.

@@ -1,0 +1,32 @@
+name: build-win
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # postinstall пересобирает нативные модули; без LL_SKIP_NATIVE_REBUILD, чтобы падало громко
+      - run: npm ci
+      - run: npx electron-builder install-app-deps
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build:win
+      - name: Проверка упаковки better-sqlite3
+        shell: pwsh
+        run: |
+          $p = 'release/win-unpacked/resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+          if (-not (Test-Path $p)) { Write-Error "Не найден $p"; exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-leads-setup
+          path: release/*.exe
+          if-no-files-found: error

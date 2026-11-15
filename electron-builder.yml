@@ -1,23 +1,31 @@
-appId: ru.localleads.app
+appId: app.localleads.desktop
 productName: Local Leads
 directories:
   buildResources: build
+  output: release
 files:
   - '!**/.vscode/*'
   - '!src/*'
   - '!tests/*'
   - '!docs/*'
+  - '!.superpowers/**'
+  - '!.github/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!vitest.config.ts'
   - '!{.env,.env.*,.npmrc}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+# categories/priors/signatures импортируются в бандл как JSON, extraResources не нужен;
+# resources/icon.png (трей) читается из app.asar через app.getAppPath()
 asarUnpack:
-  - resources/**
+  - '**/node_modules/better-sqlite3/**'
   - '**/*.node'
 win:
   executableName: local-leads
+  icon: build/icon.ico
   target: nsis
 nsis:
+  oneClick: true
+  perMachine: false
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   createDesktopShortcut: always
