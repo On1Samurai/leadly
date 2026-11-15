@@ -5,7 +5,7 @@ import type { MissionStep } from './mission'
 import type { NextActionInput } from './nextAction'
 import type { BBox, Channel, Contact, Finding, Place, Status, WebClass } from './types'
 
-export type SecretName = 'anthropic' | 'google' | 'telegram'
+export type SecretName = 'llm' | 'anthropic' | 'google' | 'telegram'
 
 export interface CityHit { id: string; name: string; displayName: string; bbox: BBox; polygon: GeoPolygon | GeoMultiPolygon | null }
 export interface PassSummary { passId: number; cellsDone: number; newCount: number; dupCount: number; googleUsed: number; stopped: boolean }

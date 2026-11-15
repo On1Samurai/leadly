@@ -107,10 +107,10 @@ describe('db', () => {
     expect(upsertRaw(db, g, ctx)).toBe('new')
     const id = (db.prepare('SELECT id FROM places').get() as { id: number }).id
     const reply = { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Здравствуйте!' }] }
-    const client = { beta: { messages: { create: async () => reply } } } as never
+    const ask = async () => ({ text: reply.content[0].text, truncated: false })
     const input = { scenario: 'no_site' as const, sells: 'сайты', tone: 'short' as const, lang: 'ru' as const,
       place: { name: 'Smak', category: 'cafe', city: 'T', rating: null, reviews: null, webClass: 'none' as const }, findings: [] }
-    await generateMessage(input, { client, db, placeId: id })
+    await generateMessage(input, { ask, db, placeId: id })
     expect(db.prepare('SELECT place_id FROM llm_cache').all()).toEqual([{ place_id: id }])
 
     deletePlaceForever(db, id)

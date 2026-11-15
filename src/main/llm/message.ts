@@ -56,30 +56,57 @@ const REASONS: Record<CheckReason, string> = {
   link: 'есть ссылка'
 }
 
-async function ask(client: Pick<Anthropic, 'beta'>, content: string): Promise<{ text: string; truncated: boolean }> {
-  const res = await client.beta.messages.create({
-    model: 'claude-sonnet-5-5',
-    max_tokens: 4000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
-    output_config: { effort: 'low' },
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content }]
-  })
-  if (res.stop_reason === 'refusal') throw new MessageRefused('Claude отказался отвечать')
-  const text = res.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim()
-  return { text, truncated: res.stop_reason === 'max_tokens' }
+/** Один запрос к модели: системный промпт + сообщение -> текст. */
+export type Asker = (system: string, content: string) => Promise<{ text: string; truncated: boolean }>
+
+export function anthropicAsker(client: Pick<Anthropic, 'beta'>): Asker {
+  return async (system, content) => {
+    const res = await client.beta.messages.create({
+      model: 'claude-sonnet-5-5',
+      max_tokens: 4000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      output_config: { effort: 'low' },
+      system,
+      messages: [{ role: 'user', content }]
+    })
+    if (res.stop_reason === 'refusal') throw new MessageRefused('Модель отказалась отвечать')
+    const text = res.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim()
+    return { text, truncated: res.stop_reason === 'max_tokens' }
+  }
+}
+
+/** OpenAI-совместимый chat.completions (AnyModel, DeepSeek и т.п.). Ключ не попадает в тексты ошибок. */
+export function openaiAsker(cfg: { baseUrl: string; apiKey: string; model: string }, fetchFn: typeof fetch = fetch): Asker {
+  const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions'
+  return async (system, content) => {
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({
+        model: cfg.model, max_tokens: 1500, stream: false,
+        messages: [{ role: 'system', content: system }, { role: 'user', content }]
+      }),
+      signal: AbortSignal.timeout(60_000)
+    })
+    if (!res.ok) throw new Error(`llm_http_${res.status}`)
+    const j = (await res.json().catch(() => null)) as { choices?: { message?: { content?: string }; finish_reason?: string }[] } | null
+    const c = j?.choices?.[0]
+    if (!c) throw new Error('llm_bad_response')
+    if (c.finish_reason === 'content_filter') throw new MessageRefused('Модель отказалась отвечать')
+    return { text: (c.message?.content ?? '').trim(), truncated: c.finish_reason === 'length' }
+  }
 }
 
 export async function generateMessage(
-  input: MessageInput, deps: { client: Pick<Anthropic, 'beta'>; db: Db; placeId?: number }
+  input: MessageInput, deps: { ask: Asker; db: Db; placeId?: number }
 ): Promise<{ text: string; cached: boolean }> {
   const key = cacheKey(input)
   const hit = deps.db.prepare('SELECT response FROM llm_cache WHERE key = ?').get(key) as { response: string } | undefined
   if (hit) return { text: hit.response, cached: true }
   const base = JSON.stringify(input)
   const attempt = async (content: string): Promise<{ text: string; check: ReturnType<typeof checkMessage> }> => {
-    const r = await ask(deps.client, content)
+    const r = await deps.ask(SYSTEM_PROMPT, content)
     return { text: r.text, check: r.truncated ? { ok: false, reason: 'empty' } : checkMessage(r.text, input) }
   }
   let { text, check } = await attempt(base)

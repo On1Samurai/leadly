@@ -56,7 +56,7 @@ describe('ipc', () => {
     const ev = {} as never
     await h['secrets.set'](ev, 'google', 'KEY-123')
     const has = (await h['secrets.has'](ev)) as Record<string, unknown>
-    expect(has).toEqual({ anthropic: false, google: true, telegram: false })
+    expect(has).toEqual({ llm: false, anthropic: false, google: true, telegram: false })
     expect(JSON.stringify(has)).not.toContain('KEY-123')
     const raw = db.prepare("SELECT value FROM settings WHERE key='secret:google'").get() as { value: string }
     expect(raw.value).not.toContain('KEY-123')

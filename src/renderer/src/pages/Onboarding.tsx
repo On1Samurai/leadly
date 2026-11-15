@@ -9,7 +9,7 @@ import { KEY_HELP, errText } from '../lib'
 export function Onboarding({ onDone }: { onDone: () => void }): React.JSX.Element {
   const [step, setStep] = useState(1)
   const [s, setS] = useState<AppSettings>(DEFAULT_SETTINGS)
-  const [has, setHas] = useState<Record<SecretName, boolean>>({ anthropic: false, google: false, telegram: false })
+  const [has, setHas] = useState<Record<SecretName, boolean>>({ llm: false, anthropic: false, google: false, telegram: false })
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
@@ -41,7 +41,7 @@ export function Onboarding({ onDone }: { onDone: () => void }): React.JSX.Elemen
         {step === 2 && <CountryPicker country={s.country} onChange={patch} />}
         {step === 3 && (
           <div className="flex flex-col gap-6">
-            <SecretField {...KEY_HELP.anthropic} saved={has.anthropic} onSave={saveKey('anthropic')} />
+            <SecretField {...KEY_HELP.llm} saved={has.llm} onSave={saveKey('llm')} />
             <SecretField {...KEY_HELP.google} saved={has.google} onSave={saveKey('google')} />
             <SecretField {...KEY_HELP.telegram} saved={has.telegram} onSave={saveKey('telegram')} />
           </div>
@@ -52,9 +52,9 @@ export function Onboarding({ onDone }: { onDone: () => void }): React.JSX.Elemen
         <Button variant="ghost" disabled={step === 1} onClick={() => setStep(step - 1)}>Назад</Button>
         {step < 3
           ? <Button onClick={() => setStep(step + 1)}>Далее</Button>
-          : <Button disabled={!has.anthropic} onClick={finish}>Готово</Button>}
+          : <Button disabled={!has.llm && !has.anthropic} onClick={finish}>Готово</Button>}
       </div>
-      {step === 3 && !has.anthropic && <p className="text-xs text-muted">Чтобы закончить, сохраните ключ Anthropic. Остальные можно пропустить.</p>}
+      {step === 3 && !has.llm && !has.anthropic && <p className="text-xs text-muted">Чтобы закончить, сохраните ключ нейросети. Остальные можно пропустить.</p>}
     </main>
   )
 }

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { openDb } from '../src/main/db/db'
 import type { Finding, Place } from '../src/shared/types'
 import {
-  MessageRefused, MessageRejected, buildMessageInput, generateMessage, isTextReady, type MessageInput
+  MessageRefused, MessageRejected, anthropicAsker, buildMessageInput, generateMessage, isTextReady, type MessageInput
 } from '../src/main/llm/message'
 import { checkMessage } from '../src/main/llm/check'
 
@@ -85,7 +85,7 @@ describe('checkMessage', () => {
 describe('generateMessage', () => {
   it('retry once then ok', async () => {
     const { create, client } = mk(reply('а'.repeat(400)), reply('Хорошо ли вам?'))
-    const r = await generateMessage(input(), { client, db: openDb(':memory:') })
+    const r = await generateMessage(input(), { ask: anthropicAsker(client), db: openDb(':memory:') })
     expect(r).toEqual({ text: 'Хорошо ли вам?', cached: false })
     expect(create).toHaveBeenCalledTimes(2)
     expect(create.mock.calls[1][0].messages[0].content).toContain('Предыдущий вариант отклонён: длиннее 300 символов. Исправь.')
@@ -93,43 +93,43 @@ describe('generateMessage', () => {
   it('empty first response is retried and not cached', async () => {
     const db = openDb(':memory:')
     const { create, client } = mk(reply(''), reply('Привет?'))
-    const r = await generateMessage(input(), { client, db })
+    const r = await generateMessage(input(), { ask: anthropicAsker(client), db })
     expect(r).toEqual({ text: 'Привет?', cached: false })
     expect(create.mock.calls[1][0].messages[0].content).toContain('пустой или обрезанный ответ')
     expect(isTextReady(input(), db)).toBe(true)
   })
   it('max_tokens is retried', async () => {
     const { create, client } = mk(reply('Обрезан', 'max_tokens'), reply('Привет?'))
-    expect((await generateMessage(input(), { client, db: openDb(':memory:') })).text).toBe('Привет?')
+    expect((await generateMessage(input(), { ask: anthropicAsker(client), db: openDb(':memory:') })).text).toBe('Привет?')
     expect(create).toHaveBeenCalledTimes(2)
   })
   it('link rejected and never cached', async () => {
     const db = openDb(':memory:')
     const { client } = mk(reply('Зайдите на https://x.by'), reply('Смотрите www.x.by'))
-    await expect(generateMessage(input(), { client, db })).rejects.toBeInstanceOf(MessageRejected)
+    await expect(generateMessage(input(), { ask: anthropicAsker(client), db })).rejects.toBeInstanceOf(MessageRejected)
     expect(isTextReady(input(), db)).toBe(false)
   })
   it('rejected after second failure', async () => {
     const { client } = mk(reply('а'.repeat(400)), reply('б'.repeat(400)))
-    await expect(generateMessage(input(), { client, db: openDb(':memory:') })).rejects.toBeInstanceOf(MessageRejected)
+    await expect(generateMessage(input(), { ask: anthropicAsker(client), db: openDb(':memory:') })).rejects.toBeInstanceOf(MessageRejected)
   })
   it('refusal throws', async () => {
     const { client } = mk({ stop_reason: 'refusal', content: [] })
-    await expect(generateMessage(input(), { client, db: openDb(':memory:') })).rejects.toBeInstanceOf(MessageRefused)
+    await expect(generateMessage(input(), { ask: anthropicAsker(client), db: openDb(':memory:') })).rejects.toBeInstanceOf(MessageRefused)
   })
   it('cache hit skips API', async () => {
     const db = openDb(':memory:')
     const { create, client } = mk(reply('Привет?'))
     expect(isTextReady(input(), db)).toBe(false)
-    await generateMessage(input(), { client, db })
+    await generateMessage(input(), { ask: anthropicAsker(client), db })
     expect(isTextReady(input(), db)).toBe(true)
-    const r = await generateMessage(input(), { client, db })
+    const r = await generateMessage(input(), { ask: anthropicAsker(client), db })
     expect(create).toHaveBeenCalledTimes(1)
     expect(r).toEqual({ text: 'Привет?', cached: true })
   })
   it('request shape', async () => {
     const { create, client } = mk(reply('Привет?'))
-    await generateMessage(input(), { client, db: openDb(':memory:') })
+    await generateMessage(input(), { ask: anthropicAsker(client), db: openDb(':memory:') })
     const req = create.mock.calls[0][0]
     expect(req.model).toBe('claude-sonnet-5-5')
     expect(req.fallbacks).toBe('default')

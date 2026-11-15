@@ -10,13 +10,16 @@ export interface AppSettings {
   dailyWriteLimit: number; dailyGoal: number; noReplyDays: number
   digestTime: string
   autostart: boolean; runInBackground: boolean; onboarded: boolean
+  /** Нейросеть для текстов: OpenAI-совместимый сервис (AnyModel, DeepSeek) или Anthropic. */
+  llmProvider: 'openai' | 'anthropic'; llmBaseUrl: string; llmModel: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
   sells: [], custom: '', country: 'RU', lang: 'ru', tone: 'business', sizeKm: 1,
   densityThreshold: 3, nextPageThreshold: 10, randomEvery: 5, googleBudget: 50,
   dailyWriteLimit: 30, dailyGoal: 6, noReplyDays: 7, digestTime: '09:00',
-  autostart: false, runInBackground: false, onboarded: false
+  autostart: false, runInBackground: false, onboarded: false,
+  llmProvider: 'openai', llmBaseUrl: 'https://anymodel.org/v1', llmModel: 'ds/deepseek-v4-flash'
 }
 
 export type NumKey = 'densityThreshold' | 'nextPageThreshold' | 'randomEvery' | 'googleBudget' | 'dailyWriteLimit' | 'dailyGoal' | 'noReplyDays'

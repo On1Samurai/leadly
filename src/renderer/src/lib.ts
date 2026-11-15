@@ -15,7 +15,8 @@ export const COUNTRIES: { code: string; name: string; lang: 'ru' | 'uk' }[] = [
   { code: 'UA', name: 'Украина', lang: 'uk' }
 ]
 export const KEY_HELP = {
-  anthropic: { label: 'Ключ Anthropic', hint: ['Нужен для текстов сообщений.', 'Где взять: console.anthropic.com → API Keys.'] },
+  llm: { label: 'Ключ нейросети (AnyModel / DeepSeek)', hint: ['Нужен для текстов сообщений. По умолчанию — DeepSeek V4 Flash через AnyModel.', 'Где взять: anymodel.org → API keys (или platform.deepseek.com, тогда смените адрес и модель в настройках).'] },
+  anthropic: { label: 'Ключ Anthropic', hint: ['Только если в настройках выбрана нейросеть Anthropic (Claude).', 'Где взять: console.anthropic.com → API Keys.'] },
   google: { label: 'Ключ Google Places', hint: ['Необязателен: уточняет сайт, рейтинг и телефон.', 'Где взять: Google Cloud Console → Places API (New) → ключ API.'] },
   telegram: { label: 'Токен Telegram-бота', hint: ['Необязателен: ежедневный дайджест в Telegram.', 'Где взять: в Telegram найдите @BotFather → /newbot.'] }
 } as const

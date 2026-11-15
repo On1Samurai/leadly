@@ -11,9 +11,9 @@ export interface SafeStorageLike {
 }
 export interface SecretEnv { safeStorage: SafeStorageLike; isDev: boolean; env: Record<string, string | undefined> }
 
-export const SECRET_NAMES: readonly SecretName[] = ['anthropic', 'google', 'telegram']
+export const SECRET_NAMES: readonly SecretName[] = ['llm', 'anthropic', 'google', 'telegram']
 const DEV_VARS: Record<SecretName, string> = {
-  anthropic: 'ANTHROPIC_API_KEY', google: 'GOOGLE_API_KEY', telegram: 'TELEGRAM_BOT_TOKEN'
+  llm: 'LLM_API_KEY', anthropic: 'ANTHROPIC_API_KEY', google: 'GOOGLE_API_KEY', telegram: 'TELEGRAM_BOT_TOKEN'
 }
 const key = (n: SecretName): string => `secret:${n}`
 

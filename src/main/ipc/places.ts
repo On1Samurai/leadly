@@ -12,7 +12,7 @@ import { channelsFor } from '../core/links'
 import { parsePhone } from '../core/phones'
 import { scorePlace } from '../core/scoring'
 import { classifyWeb } from '../core/webclass'
-import { buildMessageInput, cacheKey, generateMessage, isTextReady, type MessageInput } from '../llm/message'
+import { anthropicAsker, buildMessageInput, cacheKey, generateMessage, isTextReady, openaiAsker, type Asker, type MessageInput } from '../llm/message'
 import { historyFor, rescore } from '../search/rescore'
 import { GoogleClient, Budget } from '../sources/google'
 import { getSecret } from '../secrets'
@@ -193,9 +193,18 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
 
   define(t, 'message.generate', async (_e, id, tone) => {
     const p = need(db, id)
-    const key = getSecret(db, 'anthropic', d.secretEnv)
-    if (!key) throw new Error('no_anthropic_key')
-    return generateMessage(inputFor(db, p, loadSettings(db), tone), { client: d.anthropicFactory(key), db, placeId: id })
+    const s = loadSettings(db)
+    let ask: Asker
+    if (s.llmProvider === 'anthropic') {
+      const key = getSecret(db, 'anthropic', d.secretEnv)
+      if (!key) throw new Error('no_anthropic_key')
+      ask = anthropicAsker(d.anthropicFactory(key))
+    } else {
+      const key = getSecret(db, 'llm', d.secretEnv)
+      if (!key) throw new Error('no_llm_key')
+      ask = openaiAsker({ baseUrl: s.llmBaseUrl, apiKey: key, model: s.llmModel })
+    }
+    return generateMessage(inputFor(db, p, s, tone), { ask, db, placeId: id })
   })
 
   define(t, 'audit.run', (_e, id) => {

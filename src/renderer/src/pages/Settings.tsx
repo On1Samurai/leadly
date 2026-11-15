@@ -43,6 +43,25 @@ function NumField({ k, label, hint, value, onCommit, onError }: {
   )
 }
 
+/** Текстовая настройка: сохраняется при уходе с поля или Enter; при ошибке возвращает прежнее значение. */
+function TextSetting({ label, hint, value, onCommit, onError }: {
+  label: string; hint: string; value: string; onCommit: (v: string) => Promise<void>; onError: (m: string | null) => void
+}): React.JSX.Element {
+  const [draft, setDraft] = useState(value)
+  useEffect(() => { setDraft(value) }, [value])
+  const commit = async (): Promise<void> => {
+    const v = draft.trim()
+    if (v === value) return
+    try { await onCommit(v) } catch (e) { setDraft(value); onError(errText(e)) }
+  }
+  return (
+    <Field label={label} hint={hint}>
+      <TextInput className="font-mono" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={() => void commit()}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} />
+    </Field>
+  )
+}
+
 function BotSection({ onError, tokenSaved }: { onError: (m: string | null) => void; tokenSaved: boolean }): React.JSX.Element {
   const [st, setSt] = useState<{ linked: boolean; running: boolean } | null>(null)
   const [code, setCode] = useState<string | null>(null)
@@ -75,7 +94,7 @@ function BotSection({ onError, tokenSaved }: { onError: (m: string | null) => vo
 
 export function Settings(): React.JSX.Element {
   const [s, setS] = useState<AppSettings>(DEFAULT_SETTINGS)
-  const [has, setHas] = useState<Record<SecretName, boolean>>({ anthropic: false, google: false, telegram: false })
+  const [has, setHas] = useState<Record<SecretName, boolean>>({ llm: false, anthropic: false, google: false, telegram: false })
   const [err, setErr] = useState<string | null>(null)
   const [dataDir, setDataDir] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -107,12 +126,29 @@ export function Settings(): React.JSX.Element {
       {err && <p role="alert" className="text-sm text-danger">{err}</p>}
 
       <Section title="Ключи">
-        <SecretField {...KEY_HELP.anthropic} saved={has.anthropic} onSave={saveKey('anthropic')} />
+        {s.llmProvider === 'openai'
+          ? <SecretField {...KEY_HELP.llm} saved={has.llm} onSave={saveKey('llm')} />
+          : <SecretField {...KEY_HELP.anthropic} saved={has.anthropic} onSave={saveKey('anthropic')} />}
         <SecretField {...KEY_HELP.google} saved={has.google} onSave={saveKey('google')} />
         <SecretField {...KEY_HELP.telegram} saved={has.telegram} onSave={saveKey('telegram')} />
       </Section>
 
       <BotSection onError={setErr} tokenSaved={has.telegram} />
+
+      <Section title="Нейросеть для текстов">
+        <Field label="Сервис">
+          <select className={`${inputCls} w-72`} value={s.llmProvider} onChange={(e) => patch({ llmProvider: e.target.value as 'openai' | 'anthropic' })}>
+            <option value="openai">OpenAI-совместимый (AnyModel, DeepSeek)</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+          </select>
+        </Field>
+        {s.llmProvider === 'openai' && <>
+          <TextSetting label="Адрес API" hint="AnyModel: https://anymodel.org/v1 · DeepSeek: https://api.deepseek.com/v1" value={s.llmBaseUrl}
+            onCommit={(v) => window.api.settings.set({ llmBaseUrl: v }).then(() => { setS((o) => ({ ...o, llmBaseUrl: v })); setErr(null) })} onError={setErr} />
+          <TextSetting label="Модель" hint="AnyModel: ds/deepseek-v4-flash · DeepSeek напрямую: deepseek-v4-flash" value={s.llmModel}
+            onCommit={(v) => window.api.settings.set({ llmModel: v }).then(() => { setS((o) => ({ ...o, llmModel: v })); setErr(null) })} onError={setErr} />
+        </>}
+      </Section>
 
       <Section title="Что продаю">
         <SellsPicker sells={s.sells} custom={s.custom} onChange={patch} />
