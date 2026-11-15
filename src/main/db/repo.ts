@@ -45,7 +45,7 @@ const COLS: Record<keyof Omit<Place, 'id'>, string> = {
   cellId: 'cell_id', phoneE164: 'phone_e164', phoneType: 'phone_type', website: 'website',
   webClass: 'web_class', rating: 'rating', reviews: 'reviews', googlePlaceId: 'google_place_id',
   osmId: 'osm_id', googleFetchedAt: 'google_fetched_at', status: 'status', inBase: 'in_base',
-  remindAt: 'remind_at', score: 'score', scoreReason: 'score_reason', createdAt: 'created_at'
+  remindAt: 'remind_at', score: 'score', scoreReason: 'score_reason', createdAt: 'created_at', dealAmount: 'deal_amount'
 }
 
 const SELECT = `SELECT id, ${Object.entries(COLS).map(([k, c]) => (k === c ? c : `${c} AS ${k}`)).join(', ')} FROM places`

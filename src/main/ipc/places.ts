@@ -12,7 +12,7 @@ import { parsePhone } from '../core/phones'
 import { scorePlace } from '../core/scoring'
 import { classifyWeb } from '../core/webclass'
 import { buildMessageInput, generateMessage, isTextReady, type MessageInput } from '../llm/message'
-import { historyFor } from '../search/rescore'
+import { historyFor, rescore } from '../search/rescore'
 import { GoogleClient, Budget } from '../sources/google'
 import { getSecret } from '../secrets'
 import { loadSettings } from '../settings'
@@ -71,6 +71,11 @@ function nextCandidates(db: Db, cityId: number | undefined, now: number, s: AppS
   return [...head, ...fresh]
 }
 
+/** Пересчёт процента категории в городе места (история ответов могла измениться). */
+export function rescorePlace(db: Db, p: Place, now: number): void {
+  rescore(db, PRIORS, { categoryId: p.category, cityId: p.cityId }, now)
+}
+
 function need(db: Db, id: number): Place {
   const p = getPlace(db, id)
   if (!p) throw new Error('not_found')
@@ -110,8 +115,23 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
   })
 
   define(t, 'places.toBase', (_e, id, v) => { need(db, id); updatePlace(db, id, { inBase: v }) })
-  define(t, 'places.setStatus', (_e, id, st) => setStatus(db, id, st, d.now()))
-  define(t, 'places.remind', (_e, id, at) => { need(db, id); updatePlace(db, id, { remindAt: at }) })
+  define(t, 'places.setStatus', (_e, id, st) => {
+    const p = need(db, id)
+    setStatus(db, id, st, d.now())
+    rescorePlace(db, p, d.now()) // ответил/отказ/сделка меняют историю ответов категории
+  })
+  define(t, 'places.remind', (_e, id, at) => {
+    const p = need(db, id)
+    db.transaction(() => {
+      if (p.status !== 'later' && p.status !== 'deal' && p.status !== 'refused') setStatus(db, id, 'later', d.now())
+      updatePlace(db, id, { remindAt: at })
+      // одна незакрытая задача на место: новое напоминание заменяет старое
+      db.prepare("DELETE FROM jobs WHERE kind='reminder' AND done=0 AND json_extract(payload,'$.placeId')=?").run(id)
+      db.prepare("INSERT INTO jobs(kind,run_at,payload,done) VALUES ('reminder',?,?,0)").run(at, JSON.stringify({ placeId: id }))
+    })()
+    rescorePlace(db, p, d.now())
+  })
+  define(t, 'places.setDeal', (_e, id, amount) => { need(db, id); updatePlace(db, id, { dealAmount: amount }) })
   define(t, 'places.note', (_e, id, dir, text) => {
     need(db, id)
     db.prepare('INSERT INTO messages(place_id,direction,channel,text,created_at) VALUES (?,?,NULL,?,?)').run(id, dir, text, d.now())

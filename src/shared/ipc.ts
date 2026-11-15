@@ -49,7 +49,7 @@ export interface Api {
     list(f: PlaceFilter): Promise<PlaceView[]>; counts(f: PlaceCountsFilter): Promise<PlaceCounts>
     nextCandidates(cityId?: number): Promise<NextActionInput[]>; get(id: number): Promise<PlaceDetails>
     toBase(id: number, v: boolean): Promise<void>; setStatus(id: number, s: Status): Promise<void>
-    remind(id: number, at: number): Promise<void>; note(id: number, dir: 'in' | 'note', text: string): Promise<void>
+    remind(id: number, at: number): Promise<void>; setDeal(id: number, amount: number | null): Promise<void>; note(id: number, dir: 'in' | 'note', text: string): Promise<void>
     refreshGoogle(id: number): Promise<void>; remove(id: number): Promise<void>
   }
   message: { generate(id: number, tone: Tone): Promise<{ text: string; cached: boolean }> }
@@ -69,7 +69,7 @@ export const METHODS: MethodMap = {
   secrets: { set: true, has: true },
   city: { search: true, save: true, list: true },
   pass: { start: true, pause: true, resume: true, stop: true, status: true, cells: true },
-  places: { list: true, counts: true, nextCandidates: true, get: true, toBase: true, setStatus: true, remind: true, note: true, refreshGoogle: true, remove: true },
+  places: { list: true, counts: true, nextCandidates: true, get: true, toBase: true, setStatus: true, remind: true, note: true, setDeal: true, refreshGoogle: true, remove: true },
   message: { generate: true },
   write: { open: true, confirm: true },
   audit: { run: true, screenshot: true },

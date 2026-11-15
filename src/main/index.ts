@@ -1,4 +1,4 @@
-import { app, dialog, safeStorage, shell, BrowserWindow } from 'electron'
+import { app, clipboard, dialog, safeStorage, shell, BrowserWindow } from 'electron'
 import Anthropic from '@anthropic-ai/sdk'
 import { join } from 'path'
 import { AuditQueue } from './audit/queue'
@@ -60,6 +60,8 @@ app.whenReady().then(() => {
       const r = await dialog.showSaveDialog({ defaultPath: defaultName, filters: [{ name: 'SQLite', extensions: ['db'] }] })
       return r.canceled || !r.filePath ? null : r.filePath
     },
+    openExternal: (url) => shell.openExternal(url),
+    writeClipboard: (text) => clipboard.writeText(text),
     anthropicFactory: (apiKey) => new Anthropic({ apiKey })
   }).isPassRunning
   createWindow()

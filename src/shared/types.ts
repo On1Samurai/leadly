@@ -15,7 +15,7 @@ export interface Place {
   cityId: number; cellId: number | null; phoneE164: string | null; phoneType: PhoneType;
   website: string | null; webClass: WebClass; rating: number | null; reviews: number | null;
   googlePlaceId: string | null; osmId: string | null; googleFetchedAt: number | null;
-  status: Status; inBase: boolean; remindAt: number | null; score: number; scoreReason: string; createdAt: number;
+  status: Status; inBase: boolean; remindAt: number | null; score: number; scoreReason: string; createdAt: number; dealAmount: number | null;
 }
 export type FindingCode = 'no_https' | 'cert_invalid' | 'cert_expiring' | 'cms' | 'no_viewport' | 'h_scroll'
   | 'small_text' | 'old_footer_year' | 'slow_load' | 'broken_links' | 'no_menu_prices' | 'site_down';

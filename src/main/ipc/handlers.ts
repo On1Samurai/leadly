@@ -5,6 +5,7 @@ import { loadSettings, saveSettings } from '../settings'
 import { searchCity } from '../sources/nominatim'
 import { define, stub, type Fn, type IpcDeps, type Table } from './define'
 import { passHandlers } from './pass'
+import { writeHandlers } from './write'
 import { placesHandlers, toView } from './places'
 import type { TodayView } from '../../shared/ipc'
 import type { Place } from '../../shared/types'
@@ -44,6 +45,7 @@ export function createIpc(d: IpcDeps): { handlers: Record<ChannelName, Fn>; isPa
 
   const pass = passHandlers(t, d)
   placesHandlers(t, d)
+  writeHandlers(t, d)
 
   define(t, 'today.get', (): TodayView => {
     const s = loadSettings(db)
@@ -79,8 +81,8 @@ export function createIpc(d: IpcDeps): { handlers: Record<ChannelName, Fn>; isPa
     return dest
   })
 
-  // заглушки: write.* (Задача 16), bot.* (Задача 18)
-  for (const n of ['write.open', 'write.confirm', 'bot.bindCode', 'bot.status'] as const) stub(t, n)
+  // заглушки: bot.* (Задача 18)
+  for (const n of ['bot.bindCode', 'bot.status'] as const) stub(t, n)
 
   return { handlers: t as Record<ChannelName, Fn>, isPassRunning: pass.isRunning }
 }

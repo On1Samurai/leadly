@@ -11,7 +11,7 @@ const place = (o: Partial<Place> = {}): Place => ({
   id: 1, name: 'Кофейня Уют', category: 'cafe', lat: 0, lon: 0, address: null, cityId: 1, cellId: null,
   phoneE164: null, phoneType: 'unknown', website: null, webClass: 'own', rating: 4.6, reviews: 212,
   googlePlaceId: null, osmId: null, googleFetchedAt: null, status: 'new', inBase: false, remindAt: null,
-  score: 0, scoreReason: '', createdAt: 0, ...o
+  score: 0, scoreReason: '', createdAt: 0, dealAmount: null, ...o
 })
 const f = (code: Finding['code'], confirmed = true): Finding => ({ code, confirmed, evidence: `ev ${code}` })
 const S = { sells: 'сайты', tone: 'business' as const, lang: 'ru' as const, mode: 'local' as const }

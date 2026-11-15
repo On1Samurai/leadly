@@ -35,7 +35,8 @@ describe('ipc', () => {
   const mkDeps = (secretEnv: SecretEnv): IpcDeps => ({
     db, secretEnv, userDataDir: dir, auditQueue: new AuditQueue(1, async () => undefined),
     now: () => 1000, rng: Math.random, osm: () => gate,
-    saveDialog: async () => null, anthropicFactory: () => { throw new Error('unused') }
+    saveDialog: async () => null, anthropicFactory: () => { throw new Error('unused') },
+    openExternal: async () => undefined, writeClipboard: () => undefined
   })
   const env = (over: Partial<SecretEnv> = {}): SecretEnv =>
     ({ safeStorage: fakeSafe(), isDev: false, env: {}, ...over })
@@ -122,7 +123,7 @@ describe('ipc', () => {
   it('stubs throw not_implemented', async () => {
     const h = buildHandlers(mkDeps(env()))
     await expect(h['bot.status']({} as never)).rejects.toThrow('not_implemented')
-    await expect(h['write.confirm']({} as never, 1, 'call', 'x')).rejects.toThrow('not_implemented')
+    await expect(h['bot.bindCode']({} as never)).rejects.toThrow('not_implemented')
   })
 
   it('app.dataDir возвращает строку', async () => {
@@ -155,7 +156,7 @@ describe('ipc', () => {
     name: 'P', category: 'cafe', lat: 0, lon: 0, address: null, cityId: 1, cellId: null, phoneE164: null,
     phoneType: 'unknown', website: null, webClass: 'none', rating: null, reviews: null, googlePlaceId: null,
     osmId: null, googleFetchedAt: null, status: 'new', inBase: false, remindAt: null, score: 0, scoreReason: '',
-    createdAt: 0, ...over })
+    createdAt: 0, dealAmount: null, ...over })
   const bbox0 = '{"south":0,"west":0,"north":0.01,"east":0.01}'
   const addCity = (bbox = bbox0): void => { db.prepare('INSERT INTO cities(id,name,country,bbox,created_at) VALUES (1,?,?,?,0)').run('T', 'UA', bbox) }
 

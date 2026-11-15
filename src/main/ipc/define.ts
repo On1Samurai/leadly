@@ -22,6 +22,10 @@ export interface IpcDeps {
   rng: () => number
   osm: (bbox: BBox, cat: Category) => Promise<RawPlace[]>
   saveDialog: (defaultName: string) => Promise<string | null>
+  /** shell.openExternal; в тестах подменяется. */
+  openExternal: (url: string) => Promise<void>
+  /** clipboard.writeText */
+  writeClipboard: (text: string) => void
   anthropicFactory: (apiKey: string) => Pick<Anthropic, 'beta'>
 }
 

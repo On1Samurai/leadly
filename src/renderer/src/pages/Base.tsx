@@ -102,6 +102,31 @@ export function Base(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, loadSide])
 
+  const ids = useMemo(() => items.map((p) => p.id), [items])
+  const onMove = useCallback((id: number) => {
+    setOpenId(id)
+    if (!done && ids.length - ids.indexOf(id) <= 3) more() // подходим к концу списка — догружаем
+  }, [done, ids, more])
+  // карточка изменилась: перечитываем загруженные строки (процент соседей мог пересчитаться), порядок не трогаем
+  const onChanged = useCallback(() => {
+    const req = reqRef.current
+    window.api.places.list({ ...base, sort: f.sort, limit: Math.min(500, Math.max(lenRef.current, PAGE)), offset: 0 })
+      .then((r) => {
+        if (req !== reqRef.current) return
+        const fresh = new Map(r.map((x) => [x.id, x]))
+        setItems((xs) => xs.map((x) => fresh.get(x.id) ?? x))
+      })
+      .catch(() => undefined)
+    loadSide(req, base)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, loadSide])
+  const onRemoved = useCallback((id: number) => {
+    setOpenId(null)
+    setItems((xs) => xs.filter((x) => x.id !== id))
+    loadSide(reqRef.current, base)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, loadSide])
+
   const action: NA = useMemo(() => nextAction(cands, now), [cands, now])
   const act = useCallback((a: NonNullable<NA>) => setOpenId(a.placeId), [])
 
@@ -143,7 +168,8 @@ export function Base(): React.JSX.Element {
       </div>
       <div ref={sentinel} aria-hidden="true" className="h-4" />
       {loading && <p className="text-sm text-muted">Загрузка…</p>}
-      <PlaceDrawer id={openId} onClose={() => setOpenId(null)} />
+      <PlaceDrawer id={openId} ids={ids} total={counts?.total ?? ids.length} onMove={onMove}
+        onClose={() => setOpenId(null)} onChanged={onChanged} onRemoved={onRemoved} />
     </main>
   )
 }

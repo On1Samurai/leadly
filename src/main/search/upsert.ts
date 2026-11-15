@@ -50,7 +50,7 @@ export function upsertRaw(db: Db, raw: RawPlace, ctx: UpsertCtx): 'new' | 'dup' 
     cellId: ctx.cellId, phoneE164: inc.phoneE164!, phoneType: inc.phoneType!, website: inc.website!, webClass,
     rating: inc.rating!, reviews: inc.reviews!, googlePlaceId: inc.googlePlaceId!, osmId: inc.osmId!,
     googleFetchedAt: inc.googleFetchedAt!, status: 'new', inBase: false, remindAt: null, score: 0, scoreReason: '',
-    createdAt: ctx.now
+    createdAt: ctx.now, dealAmount: null
   })
   addContacts(db, id, contacts)
   return 'new'

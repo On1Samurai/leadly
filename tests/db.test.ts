@@ -16,7 +16,7 @@ function mkPlace(over: Partial<Omit<Place, 'id'>> = {}): Omit<Place, 'id'> {
     name: 'Кафе', category: 'cafe', lat: 50, lon: 30, address: null, cityId: 1, cellId: null,
     phoneE164: null, phoneType: 'unknown', website: null, webClass: 'none', rating: null, reviews: null,
     googlePlaceId: null, osmId: null, googleFetchedAt: null, status: 'new', inBase: false,
-    remindAt: null, score: 0, scoreReason: '', createdAt: 1, ...over
+    remindAt: null, score: 0, scoreReason: '', createdAt: 1, dealAmount: null, ...over
   }
 }
 
@@ -44,7 +44,13 @@ describe('db', () => {
   it('migrate twice is idempotent', () => {
     migrate(db)
     const rows = db.prepare('SELECT version FROM schema_version').all() as { version: number }[]
-    expect(rows.map((r) => r.version)).toEqual([1])
+    expect(rows.map((r) => r.version)).toEqual([1, 2])
+  })
+
+  it('миграция 002: places.deal_amount', () => {
+    const id = insertPlace(db, mkPlace({ dealAmount: 12345 }))
+    expect(getPlace(db, id)!.dealAmount).toBe(12345)
+    expect(getPlace(db, insertPlace(db, mkPlace()))!.dealAmount).toBeNull()
   })
 
   it('settings roundtrip', () => {
