@@ -16,6 +16,8 @@ import { ensureCells } from '../src/main/search/pass'
 import { searchCity } from '../src/main/sources/nominatim'
 import { getPlace, insertPlace } from '../src/main/db/repo'
 import type { Place } from '../src/shared/types'
+import { cacheKey } from '../src/main/llm/message'
+import { nextAction, type NextActionInput } from '../src/shared/nextAction'
 
 const fakeSafe = (available = true): SecretEnv['safeStorage'] => ({
   isEncryptionAvailable: () => available,
@@ -246,23 +248,37 @@ describe('ipc', () => {
   it('places.nextCandidates: просроченные, ответившие, лучшие новые; не больше 50', async () => {
     addCity()
     const old = insertPlace(db, mkPlace({ name: 'old', remindAt: 100, status: 'written' }))
+    insertPlace(db, mkPlace({ name: 'closed', remindAt: 100, status: 'deal' }))
     insertPlace(db, mkPlace({ name: 'future', remindAt: 5000, status: 'written' }))
     const rep = insertPlace(db, mkPlace({ name: 'rep', status: 'replied', inBase: true }))
     const ins = db.prepare('INSERT INTO messages(place_id,direction,channel,text,created_at) VALUES (?,?,NULL,?,?)')
     ins.run(rep, 'in', 'hi', 50); ins.run(rep, 'out', 'yo', 20); ins.run(rep, 'out', 'again', 30)
-    for (let i = 0; i < 80; i++) insertPlace(db, mkPlace({ name: `n${i}`, score: i, inBase: true }))
+    for (let i = 0; i < 80; i++) insertPlace(db, mkPlace({ name: `n${i}`, score: i, inBase: i >= 60 }))
     insertPlace(db, mkPlace({ name: 'notInBase', score: 999, inBase: false }))
     const h = buildHandlers(mkDeps(env()))
     const r = (await h['places.nextCandidates']({} as never)) as { id: number; name: string; score: number; lastIn: number | null; lastOut: number | null; textReady: boolean; remindAt: number | null }[]
     expect(r.length).toBeLessThanOrEqual(50)
     expect(r.find((x) => x.id === old)?.remindAt).toBe(100)
     expect(r.find((x) => x.name === 'future')).toBeUndefined()
+    expect(r.find((x) => x.name === 'closed')).toBeUndefined()
     expect(r.find((x) => x.id === rep)).toMatchObject({ lastIn: 50, lastOut: 30 })
     expect(r.find((x) => x.name === 'n79')).toBeDefined()
-    expect(r.find((x) => x.name === 'notInBase')).toBeUndefined()
+    expect(r.find((x) => x.name === 'notInBase')).toBeDefined()
     expect(r.find((x) => x.name === 'n0')).toBeUndefined()
     expect(r.every((x) => x.textReady === false)).toBe(true)
     // cityId: чужой город даёт пусто
     expect(await h['places.nextCandidates']({} as never, 99)).toEqual([])
+  })
+
+  it('places.nextCandidates: готовый текст вперёд, nextAction выбирает его при меньшем score', async () => {
+    addCity()
+    insertPlace(db, mkPlace({ name: 'high', score: 80, inBase: true }))
+    const low = insertPlace(db, mkPlace({ name: 'low', score: 10, inBase: true }))
+    db.prepare('INSERT INTO llm_cache(key,response,created_at) VALUES (?,?,0)')
+      .run(cacheKey(inputFor(db, getPlace(db, low)!, loadSettings(db))), 'text')
+    const h = buildHandlers(mkDeps(env()))
+    const r = (await h['places.nextCandidates']({} as never)) as NextActionInput[]
+    expect(r.map((x) => [x.name, x.textReady])).toEqual([['low', true], ['high', false]])
+    expect(nextAction(r, 1000)).toMatchObject({ kind: 'write', placeId: low })
   })
 })

@@ -42,7 +42,7 @@ export function buildMessageInput(
   }
 }
 
-const cacheKey = (input: MessageInput): string =>
+export const cacheKey = (input: MessageInput): string =>
   createHash('sha256').update(PROMPT_VERSION + JSON.stringify(input)).digest('hex')
 
 export function isTextReady(input: MessageInput, db: Db): boolean {

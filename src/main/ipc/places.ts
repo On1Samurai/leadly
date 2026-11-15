@@ -55,15 +55,17 @@ function nextCandidates(db: Db, cityId: number | undefined, now: number, s: AppS
   const q = (cond: string, order: string, limit: number, ...extra: unknown[]): NextRow[] =>
     db.prepare(`${NEXT_SELECT} AND ${cond} ORDER BY ${order} LIMIT ?`).all(c, c, ...extra, limit) as NextRow[]
   const rows = [
-    ...q('p.remind_at IS NOT NULL AND p.remind_at<=?', 'p.remind_at', NEXT_LIMITS.remind, now),
+    ...q(`p.remind_at IS NOT NULL AND p.remind_at<=? AND p.status NOT IN ('deal','refused')`, 'p.remind_at', NEXT_LIMITS.remind, now),
     ...q(`p.status='replied' AND lastIn IS NOT NULL AND lastIn > COALESCE(lastOut,0)`, 'lastIn DESC', NEXT_LIMITS.replied),
-    ...q(`p.status='new' AND p.in_base=1`, 'p.score DESC, p.id DESC', NEXT_LIMITS.fresh)
+    ...q(`p.status='new'`, 'p.in_base DESC, p.score DESC, p.id DESC', NEXT_LIMITS.fresh)
   ]
   const seen = new Set<number>()
-  return rows.filter((r) => !seen.has(r.id) && seen.add(r.id)).map((r) => {
+  const out = rows.filter((r) => !seen.has(r.id) && seen.add(r.id)).map((r) => {
     const p = getPlace(db, r.id)
     return { ...r, textReady: p ? isTextReady(inputFor(db, p, s), db) : false }
   })
+  // готовый текст вперёд (sort стабилен: порядок score внутри групп сохраняется)
+  return out.sort((a, b) => Number(b.status === 'new' && b.textReady) - Number(a.status === 'new' && a.textReady))
 }
 
 function need(db: Db, id: number): Place {
