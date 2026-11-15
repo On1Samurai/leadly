@@ -23,6 +23,7 @@ export function Venue({ d, onChanged, onRemoved }: Props): React.JSX.Element {
   const [zoom, setZoom] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const timers = useRef<number[]>([])
 
   useEffect(() => {
@@ -43,7 +44,13 @@ export function Venue({ d, onChanged, onRemoved }: Props): React.JSX.Element {
     // проверка идёт в фоне: обновляем карточку, когда она успеет закончиться
     timers.current.push(window.setTimeout(onChanged, 5000), window.setTimeout(onChanged, 15000))
   }, 'Проверка запущена')
-  const google = (): void => run(async () => { await window.api.places.refreshGoogle(d.id); onChanged() }, 'Обновлено из Google')
+  const google = (): void => {
+    setRefreshing(true)
+    run(async () => {
+      try { await window.api.places.refreshGoogle(d.id) } finally { setRefreshing(false) }
+      onChanged()
+    }, 'Обновлено из Google')
+  }
   const remove = (): void => {
     window.api.places.remove(d.id).then(onRemoved).catch((e) => { setConfirmDel(false); setMsg(errText(e)) })
   }
@@ -89,7 +96,7 @@ export function Venue({ d, onChanged, onRemoved }: Props): React.JSX.Element {
       </section>
       {d.googlePlaceId && (
         <section className="flex flex-col gap-2">
-          <Button variant="ghost" className="self-start" onClick={google}>Обновить из Google</Button>
+          <Button variant="ghost" className="self-start" onClick={google} disabled={refreshing}>Обновить из Google (платный запрос)</Button>
           <p className="text-xs text-muted">Powered by Google</p>
         </section>
       )}
@@ -98,7 +105,8 @@ export function Venue({ d, onChanged, onRemoved }: Props): React.JSX.Element {
       {zoom && shot && <ShotOverlay src={shot} onClose={() => setZoom(false)} />}
       {confirmDel && (
         <Modal onClose={() => setConfirmDel(false)} title="Удалить навсегда?">
-          <p className="text-sm text-muted">Заведение «{d.name}» исчезнет из базы вместе со всеми данными: контактами, перепиской, заметками, аудитами и скриншотами. Это нельзя отменить.</p>
+          <p className="text-sm text-muted">Заведение «{d.name}» исчезнет из базы вместе со всеми данными: контактами, перепиской, заметками, аудитами и скриншотами — и больше не появится в поиске. Это нельзя отменить.</p>
+          <p className="text-sm text-muted">Данные удалены из программы. Копии в резервных копиях исчезнут в течение 7 дней.</p>
           <div className="flex gap-2">
             <Button className="!bg-danger" onClick={remove}>Удалить</Button>
             <Button variant="ghost" onClick={() => setConfirmDel(false)}>Отмена</Button>

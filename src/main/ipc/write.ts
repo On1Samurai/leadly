@@ -2,7 +2,7 @@ import type { Channel, Place } from '../../shared/types'
 import type { WriteOpen } from '../../shared/ipc'
 import { countOpen, dailyGate } from '../core/daily'
 import { buildLink } from '../core/links'
-import { getPlace, setStatus } from '../db/repo'
+import { clearReminder, getPlace, setStatus } from '../db/repo'
 import { loadSettings } from '../settings'
 import { define, type IpcDeps, type Table } from './define'
 import { rescorePlace } from './places'
@@ -60,6 +60,7 @@ export function writeHandlers(t: Table, d: IpcDeps): void {
     const now = d.now()
     db.transaction(() => {
       if (p.status === 'new' || p.status === 'later') setStatus(db, id, 'written', now)
+      if (p.status === 'later') clearReminder(db, id)
       db.prepare("INSERT INTO messages(place_id,direction,channel,text,created_at) VALUES (?,'out',?,?,?)").run(id, ch, text, now)
     })()
     rescorePlace(db, p, now)

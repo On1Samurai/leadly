@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { PlaceCounts } from '../../shared/ipc'
 import type { Contact, Place, Status, WebClass } from '../../shared/types'
 import { haversineM } from '../core/geo'
@@ -122,12 +123,36 @@ export function addContacts(db: Db, placeId: number, c: Contact[]): void {
   db.transaction(() => { for (const x of c) st.run(placeId, x.kind, x.value) })()
 }
 
-export function deletePlaceForever(db: Db, id: number): string[] {
+/** Уход из «Позже»: напоминание больше не нужно. */
+export function clearReminder(db: Db, id: number): void {
+  db.prepare('UPDATE places SET remind_at=NULL WHERE id=?').run(id)
+  db.prepare("DELETE FROM jobs WHERE kind='reminder' AND done=0 AND json_extract(payload,'$.placeId')=?").run(id)
+}
+
+export interface PlaceKeys { googlePlaceId?: string | null; osmId?: string | null; phones?: (string | null | undefined)[] }
+
+/** sha256 идентификаторов места: в suppressed не лежит ни один открытый идентификатор. */
+function suppressHashes(k: PlaceKeys): string[] {
+  const keys = [k.googlePlaceId && `g:${k.googlePlaceId}`, k.osmId && `o:${k.osmId}`, ...(k.phones ?? []).map((x) => x && `p:${x}`)]
+  return keys.filter((x): x is string => !!x).map((x) => createHash('sha256').update(x).digest('hex'))
+}
+
+export function isSuppressed(db: Db, k: PlaceKeys): boolean {
+  const st = db.prepare('SELECT 1 FROM suppressed WHERE hash=?')
+  return suppressHashes(k).some((h) => st.get(h) !== undefined)
+}
+
+export function deletePlaceForever(db: Db, id: number, now = Date.now()): string[] {
   return db.transaction(() => {
     const shots = (db.prepare('SELECT screenshot FROM audits WHERE place_id=? AND screenshot IS NOT NULL').all(id) as { screenshot: string }[])
       .map((r) => r.screenshot)
+    const p = db.prepare('SELECT google_place_id g, osm_id o, phone_e164 ph FROM places WHERE id=?').get(id) as { g: string | null; o: string | null; ph: string | null } | undefined
+    if (p) {
+      const ins = db.prepare('INSERT OR IGNORE INTO suppressed(hash, created_at) VALUES (?,?)')
+      for (const h of suppressHashes({ googlePlaceId: p.g, osmId: p.o, phones: [p.ph] })) ins.run(h, now)
+    }
     db.prepare("DELETE FROM jobs WHERE json_extract(payload,'$.placeId')=?").run(id)
-    for (const t of ['contacts', 'audits', 'messages', 'status_log']) db.prepare(`DELETE FROM ${t} WHERE place_id=?`).run(id)
+    for (const t of ['contacts', 'audits', 'messages', 'status_log', 'llm_cache']) db.prepare(`DELETE FROM ${t} WHERE place_id=?`).run(id)
     db.prepare('DELETE FROM places WHERE id=?').run(id)
     return shots
   })()

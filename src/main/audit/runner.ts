@@ -1,4 +1,4 @@
-import { BrowserWindow, session } from 'electron'
+import { BrowserWindow, net, session } from 'electron'
 import type { Contact, Finding } from '../../shared/types'
 import { contactFromUrl } from '../core/links'
 import { annotationScript } from './annotate'
@@ -6,6 +6,7 @@ import { buildInput, type PageData } from './build-input'
 import { checkCert } from './cert'
 import { detect } from './detect'
 import { checkLinks } from './links-check'
+import { probeOnline, softenNoHttps, unreachableResult, type LoadFail } from './reach'
 import type { AuditResult } from './runner-types'
 
 export type { AuditResult } from './runner-types'
@@ -109,6 +110,7 @@ export async function runAudit(url: string, opts: { timeoutMs?: number; checkMen
     const c = candidates(url)
     const attempts = c.length > 1 ? c : [c[0], c[0]]
     let loaded = false
+    const fails: LoadFail[] = []
     for (const target of attempts) {
       frame = null
       let timer: NodeJS.Timeout | undefined
@@ -118,17 +120,17 @@ export async function runAudit(url: string, opts: { timeoutMs?: number; checkMen
           new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error('timeout')), timeoutMs) })
         ])
         loaded = true
-      } catch {
+      } catch (e) {
         // ERR_ABORTED on a prevented download: headers arrived, document is simply not a page.
         const f = frame as MainFrameInfo | null
         if (f && !f.contentType.toLowerCase().includes('text/html')) loaded = true
-        else wc.stop()
+        else { wc.stop(); fails.push(e instanceof Error && e.message === 'timeout' ? 'timeout' : 'error') }
       } finally { clearTimeout(timer) }
       if (loaded) break
     }
-    if (!loaded) {
-      return { findings: [{ code: 'site_down', confirmed: true, evidence: 'сайт не открывается' }], screenshot: null, contacts: [] }
-    }
+    if (!loaded) return unreachableResult(await probeOnline(() => net.isOnline()))
+    // https-попытка (первая из двух) не открылась, открылся http
+    const httpsFail = c.length > 1 && fails.length === 1 ? fails[0] : null
 
     const f = (frame as MainFrameInfo | null) ?? { url: wc.getURL(), contentType: 'text/html', headers: {} }
     const finalUrl = f.url || wc.getURL()
@@ -144,7 +146,7 @@ export async function runAudit(url: string, opts: { timeoutMs?: number; checkMen
       page ? checkLinks(finalUrl, page.hrefs) : Promise.resolve([] as string[])
     ])
     const input = buildInput({ finalUrl, contentType: f.contentType, headers: f.headers, cert, page, brokenLinks, checkMenu: opts.checkMenu ?? false })
-    const findings: Finding[] = detect(input, new Date())
+    const findings: Finding[] = softenNoHttps(detect(input, new Date()), httpsFail)
 
     const contacts: Contact[] = []
     const seen = new Set<string>()

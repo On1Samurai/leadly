@@ -193,4 +193,13 @@ describe('write: доп. случаи', () => {
     expect(getPlace(db, a)!.remindAt).toBeNull()
     expect(db.prepare('SELECT COUNT(*) n FROM jobs WHERE done=0').get()).toEqual({ n: 0 })
   })
+  it('write.confirm из later снимает remind_at и задачу', async () => {
+    const a = mk({ status: 'written' }); const h = buildHandlers(deps())
+    await h['places.remind'](ev, a, now + 1000)
+    expect(getPlace(db, a)!.status).toBe('later')
+    await h['write.confirm'](ev, a, 'call', 'x')
+    expect(getPlace(db, a)!.status).toBe('written')
+    expect(getPlace(db, a)!.remindAt).toBeNull()
+    expect(db.prepare("SELECT COUNT(*) n FROM jobs WHERE kind='reminder'").get()).toEqual({ n: 0 })
+  })
 })

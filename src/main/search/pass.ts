@@ -32,14 +32,33 @@ interface Tally { n: number; d: number; g: number }
 
 export const MAX_CELLS = 2500
 
+/** Сетка города по размеру квадрата. Размер сменился — сетка строится заново, места переносятся в новые квадраты. */
 export function ensureCells(db: Db, cityId: number, sizeKm: number): void {
+  const c = db.prepare('SELECT bbox, polygon, size_km AS sizeKm FROM cities WHERE id=?').get(cityId) as { bbox: string; polygon: string | null; sizeKm: number | null }
   const has = db.prepare('SELECT 1 FROM cells WHERE city_id=? LIMIT 1').get(cityId)
-  if (has) return
-  const c = db.prepare('SELECT bbox, polygon FROM cities WHERE id=?').get(cityId) as { bbox: string; polygon: string | null }
-  if (cellCount(JSON.parse(c.bbox) as BBox, sizeKm) > MAX_CELLS) throw new Error('city_too_large')
-  const grid = makeGrid(JSON.parse(c.bbox) as BBox, sizeKm, c.polygon ? (JSON.parse(c.polygon) as GeoPolygon | GeoMultiPolygon) : undefined)
+  if (has && c.sizeKm === sizeKm) return
+  const bbox = JSON.parse(c.bbox) as BBox
+  if (cellCount(bbox, sizeKm) > MAX_CELLS) throw new Error('city_too_large')
+  const grid = makeGrid(bbox, sizeKm, c.polygon ? (JSON.parse(c.polygon) as GeoPolygon | GeoMultiPolygon) : undefined)
   const ins = db.prepare('INSERT INTO cells(city_id,ix,iy,bbox) VALUES (?,?,?,?)')
-  db.transaction(() => { for (const g of grid) ins.run(cityId, g.ix, g.iy, JSON.stringify(g.bbox)) })()
+  db.transaction(() => {
+    if (has) {
+      db.prepare('UPDATE places SET cell_id=NULL WHERE city_id=?').run(cityId)
+      db.prepare('DELETE FROM pass_cells WHERE cell_id IN (SELECT id FROM cells WHERE city_id=?)').run(cityId)
+      db.prepare('DELETE FROM cells WHERE city_id=?').run(cityId)
+    }
+    const byIdx = new Map<string, number>()
+    for (const g of grid) byIdx.set(`${g.ix},${g.iy}`, Number(ins.run(cityId, g.ix, g.iy, JSON.stringify(g.bbox)).lastInsertRowid))
+    if (has) {
+      const upd = db.prepare('UPDATE places SET cell_id=? WHERE id=?')
+      for (const p of db.prepare('SELECT id, lat, lon FROM places WHERE city_id=?').all(cityId) as { id: number; lat: number; lon: number }[]) {
+        const { ix, iy } = cellIndexOf(p.lat, p.lon, bbox, sizeKm)
+        const cell = byIdx.get(`${ix},${iy}`)
+        if (cell !== undefined) upd.run(cell, p.id)
+      }
+    }
+    db.prepare('UPDATE cities SET size_km=? WHERE id=?').run(sizeKm, cityId)
+  })()
 }
 
 async function loadOsm(deps: PassDeps, cityId: number, cat: Category, bbox: BBox): Promise<RawPlace[]> {
@@ -78,6 +97,7 @@ export async function runPass(deps: PassDeps, p: PassParams, ctl: PassControl): 
       const { ix, iy } = cellIndexOf(raw.lat, raw.lon, cityBox, p.sizeKm)
       const cell = byIdx.get(`${ix},${iy}`) ?? null
       const r = upsertRaw(db, raw, ctxFor(cell?.id ?? null))
+      if (r === 'suppressed') return
       if (r === 'new') sum.newCount++; else sum.dupCount++
       if (cell) { if (r === 'new') t(cell.id).n++; else t(cell.id).d++ }
     }
@@ -99,7 +119,7 @@ export async function runPass(deps: PassDeps, p: PassParams, ctl: PassControl): 
       deps.emit({ type: 'warning', text: 'OpenStreetMap не отвечает, ищем только в Google' })
     }
 
-    let googleOn = deps.google !== null
+    let googleOn = deps.google !== null && p.categoryId !== 'b2b' // B2B только по OSM (спец. §8.2)
     const byId = new Map(cells.map((c) => [c.id, c]))
     const order = orderCellsFlagged(cells.map((c) => ({ id: c.id, osmCount: c.osmCount, googleYield: c.googleYield ?? 0 })), p.randomEvery, deps.rng)
     for (const { cell: st, random } of order) {

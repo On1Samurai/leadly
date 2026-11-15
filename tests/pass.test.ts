@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb, type Db } from '../src/main/db/db'
-import { runPass, upsertRaw, type PassDeps, type PassEvent, type PassParams, type PassControl } from '../src/main/search/pass'
+import { ensureCells, runPass, upsertRaw, type PassDeps, type PassEvent, type PassParams, type PassControl } from '../src/main/search/pass'
 import { rescore } from '../src/main/search/rescore'
-import { setStatus } from '../src/main/db/repo'
+import { deletePlaceForever, setStatus } from '../src/main/db/repo'
 import { GoogleAuthError, GoogleTransientError, type GoogleClient } from '../src/main/sources/google'
 import { OverpassUnavailable } from '../src/main/sources/osm'
 import type { Category, RawPlace } from '../src/shared/types'
@@ -208,5 +208,56 @@ describe('upsertRaw / rescore', () => {
     const rows = db.prepare('SELECT score, score_reason FROM places ORDER BY id').all() as { score: number }[]
     expect(rows[0].score).toBeGreaterThan(0)
     expect(rows[0].score).toBe(rows[1].score)
+  })
+})
+
+describe('доработки прохода', () => {
+  it('удалённое навсегда место не возвращается при повторном проходе', async () => {
+    const osm = many('osm', 0, 0, 2)
+    const s = setup(osm, async () => ({ places: [] }))
+    await runPass(s.deps, params, ctl())
+    const id = (db.prepare("SELECT id FROM places WHERE osm_id=?").get(osm[0].sourceId) as { id: number }).id
+    deletePlaceForever(db, id)
+    const r = await runPass(s.deps, params, ctl()) // OSM из кэша вернёт то же место
+    expect(count()).toBe(1)
+    expect(r.newCount).toBe(0)
+    expect(r.dupCount).toBe(1)
+  })
+
+  it('смена размера квадрата перестраивает сетку и переносит места', async () => {
+    const s = setup([...many('osm', 0, 0, 2), ...many('osm', 2, 1, 1)], async () => ({ places: [] }))
+    await runPass(s.deps, params, ctl())
+    const cells1 = (db.prepare('SELECT COUNT(*) n FROM cells').get() as { n: number }).n
+    expect(cells1).toBe(6)
+    ensureCells(db, 1, 0.5)
+    const cells2 = (db.prepare('SELECT COUNT(*) n FROM cells').get() as { n: number }).n
+    expect(cells2).toBeGreaterThan(cells1)
+    expect(db.prepare('SELECT size_km s FROM cities WHERE id=1').get()).toEqual({ s: 0.5 })
+    const orphans = db.prepare('SELECT COUNT(*) n FROM places WHERE cell_id IS NULL OR cell_id NOT IN (SELECT id FROM cells)').get()
+    expect(orphans).toEqual({ n: 0 })
+    expect(db.prepare('SELECT COUNT(*) n FROM pass_cells WHERE cell_id NOT IN (SELECT id FROM cells)').get()).toEqual({ n: 0 })
+    // место в своей новой клетке
+    const p = db.prepare('SELECT p.lat, p.lon, c.bbox FROM places p JOIN cells c ON c.id=p.cell_id').all() as { lat: number; lon: number; bbox: string }[]
+    for (const x of p) {
+      const b = JSON.parse(x.bbox) as { south: number; north: number; west: number; east: number }
+      expect(x.lat >= b.south && x.lat <= b.north && x.lon >= b.west && x.lon <= b.east).toBe(true)
+    }
+    // тот же размер — сетка не трогается
+    const ids = db.prepare('SELECT id FROM cells ORDER BY id').all()
+    ensureCells(db, 1, 0.5)
+    expect(db.prepare('SELECT id FROM cells ORDER BY id').all()).toEqual(ids)
+    // проход на новом размере работает
+    const r = await runPass(s.deps, { ...params, sizeKm: 0.5 }, ctl())
+    expect(r.cellsDone).toBe(cells2)
+  })
+
+  it('B2B не ходит в Google', async () => {
+    const b2b: Category = { id: 'b2b', title: 'B2B', osm: [{ office: 'company' }], query: { ru: 'компания', uk: 'компанія' } }
+    const s = setup(many('osm', 0, 0, 5), async () => ({ places: [] }))
+    s.deps.categories = [cat, b2b]
+    const r = await runPass(s.deps, { ...params, categoryId: 'b2b', randomEvery: 1 }, ctl())
+    expect(s.c.google).toBe(0)
+    expect(r.googleUsed).toBe(0)
+    expect(r.newCount).toBe(5)
   })
 })

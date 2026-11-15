@@ -37,6 +37,7 @@ function PlaceCardImpl({ place: p, cityName, categoryTitle, onOpen, onToggle }: 
         <h3 className="truncate text-base font-semibold">{p.name}</h3>
         <p className="truncate text-xs text-muted">{meta}</p>
         <p className="line-clamp-1 text-sm text-muted">{p.scoreReason}</p>
+        {p.rating !== null && <p className="text-[10px] text-muted">Powered by Google</p>}
       </button>
       <div className="mt-auto flex items-center gap-1.5 pt-1">
         {p.channels.map((c) => (

@@ -13,6 +13,7 @@ export function makeAuditWorker(db: Db, userDataDir: string, run: RunAudit, now:
     if (!place?.website) return
     const cat = CATEGORIES.find((c) => c.id === place.category)
     const result = await run(place.website, { checkMenu: cat?.menu })
+    if (result.error === 'offline') return // без строки audits место снова попадёт в очередь (enqueueAudits)
     saveAudit(db, userDataDir, placeId, place.website, now(), result)
   }
 }

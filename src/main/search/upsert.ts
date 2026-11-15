@@ -1,5 +1,5 @@
 import type { Db } from '../db/db'
-import { addContacts, candidatesByKeys, candidatesNear, getPlace, insertPlace, updatePlace, type Candidate } from '../db/repo'
+import { addContacts, candidatesByKeys, candidatesNear, getPlace, insertPlace, isSuppressed, updatePlace, type Candidate } from '../db/repo'
 import { findDuplicate, mergePatch } from '../core/dedup'
 import { contactFromUrl } from '../core/links'
 import { parsePhone, splitPhones } from '../core/phones'
@@ -8,7 +8,8 @@ import type { Contact, Place, RawPlace } from '../../shared/types'
 
 export interface UpsertCtx { country: string; cityId: number; cellId: number | null; categoryId: string; now: number }
 
-export function upsertRaw(db: Db, raw: RawPlace, ctx: UpsertCtx): 'new' | 'dup' {
+/** 'suppressed' — место удалено навсегда: не вставляется и не считается ни новым, ни дублем. */
+export function upsertRaw(db: Db, raw: RawPlace, ctx: UpsertCtx): 'new' | 'dup' | 'suppressed' {
   const phones = raw.phones.flatMap(splitPhones).map((x) => parsePhone(x, ctx.country)).filter((x) => x !== null)
   const first = phones[0] ?? null
   const contacts: Contact[] = [...raw.contacts, ...phones.slice(1).map((p) => ({ kind: 'call' as const, value: p.e164 }))]
@@ -19,6 +20,7 @@ export function upsertRaw(db: Db, raw: RawPlace, ctx: UpsertCtx): 'new' | 'dup' 
   }
   const googlePlaceId = raw.source === 'google' ? raw.sourceId : undefined
   const osmId = raw.source === 'osm' ? raw.sourceId : undefined
+  if (isSuppressed(db, { googlePlaceId, osmId, phones: phones.map((x) => x.e164) })) return 'suppressed'
 
   const cands = new Map<number, Candidate>()
   for (const c of [

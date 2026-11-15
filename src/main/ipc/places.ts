@@ -5,13 +5,14 @@ import type { PlaceDetails, PlaceView } from '../../shared/ipc'
 import type { NextActionInput } from '../../shared/nextAction'
 import type { AppSettings, Tone } from '../../shared/settings'
 import type { Db } from '../db/db'
-import { countPlaces, deletePlaceForever, getPlace, listPlaces, setStatus, updatePlace } from '../db/repo'
+import { clearReminder, countPlaces, deletePlaceForever, getPlace, getSetting, listPlaces, setSetting, setStatus, updatePlace } from '../db/repo'
+import { localDate } from '../core/daily'
 import { mergePatch } from '../core/dedup'
 import { channelsFor } from '../core/links'
 import { parsePhone } from '../core/phones'
 import { scorePlace } from '../core/scoring'
 import { classifyWeb } from '../core/webclass'
-import { buildMessageInput, generateMessage, isTextReady, type MessageInput } from '../llm/message'
+import { buildMessageInput, cacheKey, generateMessage, isTextReady, type MessageInput } from '../llm/message'
 import { historyFor, rescore } from '../search/rescore'
 import { GoogleClient, Budget } from '../sources/google'
 import { getSecret } from '../secrets'
@@ -82,6 +83,20 @@ function need(db: Db, id: number): Place {
   return p
 }
 
+/** Платных обновлений из Google в день (на всю программу). */
+export const REFRESH_PER_DAY = 20
+const TONES: Tone[] = ['business', 'friendly', 'short']
+
+/** Счётчик за локальную дату; true — запрос можно делать (и он уже засчитан). */
+function takeRefresh(db: Db, now: number): boolean {
+  const date = localDate(now)
+  const cur = getSetting<{ date: string; n: number }>(db, 'googleRefresh', { date, n: 0 })
+  const n = cur.date === date ? cur.n : 0
+  if (n >= REFRESH_PER_DAY) return false
+  setSetting(db, 'googleRefresh', { date, n: n + 1 })
+  return true
+}
+
 const insideShots = (userDataDir: string, f: string): boolean =>
   resolve(f).startsWith(resolve(userDataDir, 'screenshots') + sep)
 
@@ -118,10 +133,7 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
   define(t, 'places.setStatus', (_e, id, st) => {
     const p = need(db, id)
     setStatus(db, id, st, d.now())
-    if (p.status === 'later' && st !== 'later') { // напоминание больше не нужно
-      updatePlace(db, id, { remindAt: null })
-      db.prepare("DELETE FROM jobs WHERE kind='reminder' AND done=0 AND json_extract(payload,'$.placeId')=?").run(id)
-    }
+    if (p.status === 'later' && st !== 'later') clearReminder(db, id)
     rescorePlace(db, p, d.now()) // ответил/отказ/сделка меняют историю ответов категории
   })
   define(t, 'places.remind', (_e, id, at) => {
@@ -141,24 +153,39 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
     db.prepare('INSERT INTO messages(place_id,direction,channel,text,created_at) VALUES (?,?,NULL,?,?)').run(id, dir, text, d.now())
   })
 
+  const refreshing = new Set<number>()
   define(t, 'places.refreshGoogle', async (_e, id) => {
     const p = need(db, id)
     const key = getSecret(db, 'google', d.secretEnv)
     if (!key) throw new Error('no_google_key')
     if (!p.googlePlaceId) throw new Error('no_google_id')
-    const raw = await new GoogleClient(key, new Budget(1)).details(p.googlePlaceId)
-    const phone = raw.phones.map((x) => parsePhone(x, loadSettings(db).country)).find((x) => x !== null) ?? null
-    const patch = mergePatch(p, {
-      name: raw.name, address: raw.address ?? null, phoneE164: phone?.e164 ?? null, phoneType: phone?.type ?? 'unknown',
-      website: raw.website ?? null, rating: raw.rating ?? null, reviews: raw.reviews ?? null,
-      googleFetchedAt: d.now(), googlePlaceId: p.googlePlaceId
-    })
-    if ('website' in patch) patch.webClass = classifyWeb(patch.website ?? undefined)
-    updatePlace(db, id, patch)
+    if (refreshing.has(id)) throw new Error('refresh_running')
+    if (!takeRefresh(db, d.now())) throw new Error('refresh_limit')
+    refreshing.add(id)
+    try {
+      const raw = await new GoogleClient(key, new Budget(1)).details(p.googlePlaceId)
+      const cur = need(db, id) // место могли изменить или удалить, пока шёл запрос
+      const phone = raw.phones.map((x) => parsePhone(x, loadSettings(db).country)).find((x) => x !== null) ?? null
+      const patch = mergePatch(cur, {
+        name: raw.name, address: raw.address ?? null, phoneE164: phone?.e164 ?? null, phoneType: phone?.type ?? 'unknown',
+        website: raw.website ?? null, rating: raw.rating ?? null, reviews: raw.reviews ?? null,
+        googleFetchedAt: d.now(), googlePlaceId: cur.googlePlaceId
+      })
+      if ('website' in patch) patch.webClass = classifyWeb(patch.website ?? undefined)
+      updatePlace(db, id, patch)
+      const fresh = getPlace(db, id)!
+      if (fresh.webClass === 'own' && fresh.website && !db.prepare('SELECT 1 FROM audits WHERE place_id=?').get(id)) d.auditQueue.push(id)
+    } finally { refreshing.delete(id) }
   })
 
   define(t, 'places.remove', (_e, id) => {
-    for (const f of deletePlaceForever(db, id)) {
+    const p = getPlace(db, id)
+    if (p) { // кэш текстов, созданный до появления llm_cache.place_id, находим по ключу
+      const s = loadSettings(db)
+      const del = db.prepare('DELETE FROM llm_cache WHERE key=?')
+      for (const tone of TONES) del.run(cacheKey(inputFor(db, p, s, tone)))
+    }
+    for (const f of deletePlaceForever(db, id, d.now())) {
       if (!insideShots(d.userDataDir, f)) continue
       try { unlinkSync(f) } catch { /* файла нет */ }
     }
@@ -168,7 +195,7 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
     const p = need(db, id)
     const key = getSecret(db, 'anthropic', d.secretEnv)
     if (!key) throw new Error('no_anthropic_key')
-    return generateMessage(inputFor(db, p, loadSettings(db), tone), { client: d.anthropicFactory(key), db })
+    return generateMessage(inputFor(db, p, loadSettings(db), tone), { client: d.anthropicFactory(key), db, placeId: id })
   })
 
   define(t, 'audit.run', (_e, id) => {

@@ -3,6 +3,8 @@ export function errText(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e)
   if (m.includes('bad_args')) return 'Неверные данные'
   if (m.includes('encryption_unavailable')) return 'Шифрование недоступно — ключ не сохранён'
+  if (m.includes('refresh_limit')) return 'Лимит обновлений из Google на сегодня исчерпан'
+  if (m.includes('refresh_running')) return 'Обновление из Google уже идёт'
   return `Ошибка: ${m.replace(/^Error invoking remote method '[^']*': (Error: )?/, '')}`
 }
 

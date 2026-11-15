@@ -1,6 +1,8 @@
 import { app, clipboard, dialog, safeStorage, shell, BrowserWindow, Menu, Tray, nativeImage } from 'electron'
 import Anthropic from '@anthropic-ai/sdk'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
+import { navDecision } from './app-url'
 import { AuditQueue } from './audit/queue'
 import { runAudit } from './audit/runner'
 import { openDb, type Db } from './db/db'
@@ -61,11 +63,20 @@ function createWindow(show: boolean): void {
     return { action: 'deny' }
   })
 
-  if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
+  const devUrl = !app.isPackaged ? process.env['ELECTRON_RENDERER_URL'] : undefined
+  const appUrl = devUrl ?? pathToFileURL(join(__dirname, '../renderer/index.html')).href
+  // ссылка (атрибуция карты) или брошенный в окно файл не должны увести окно с preload-API на чужую страницу
+  const guard = (e: { preventDefault(): void }, url: string): void => {
+    const d = navDecision(url, appUrl)
+    if (d === 'allow') return
+    e.preventDefault()
+    if (d === 'external') shell.openExternal(url).catch(() => undefined)
   }
+  win.webContents.on('will-navigate', (e, url) => guard(e, url))
+  win.webContents.on('will-redirect', (e, url) => guard(e, url))
+
+  if (devUrl) win.loadURL(devUrl)
+  else win.loadFile(join(__dirname, '../renderer/index.html'))
 }
 
 // одна копия программы: вторая запуск показывает окно первой

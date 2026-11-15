@@ -72,7 +72,7 @@ async function ask(client: Pick<Anthropic, 'beta'>, content: string): Promise<{ 
 }
 
 export async function generateMessage(
-  input: MessageInput, deps: { client: Pick<Anthropic, 'beta'>; db: Db }
+  input: MessageInput, deps: { client: Pick<Anthropic, 'beta'>; db: Db; placeId?: number }
 ): Promise<{ text: string; cached: boolean }> {
   const key = cacheKey(input)
   const hit = deps.db.prepare('SELECT response FROM llm_cache WHERE key = ?').get(key) as { response: string } | undefined
@@ -87,6 +87,6 @@ export async function generateMessage(
     ;({ text, check } = await attempt(`${base}\n\nПредыдущий вариант отклонён: ${REASONS[check.reason]}. Исправь.`))
     if (!check.ok) throw new MessageRejected(`Текст не прошёл проверку: ${check.reason}`)
   }
-  deps.db.prepare('INSERT OR REPLACE INTO llm_cache(key, response, created_at) VALUES (?, ?, ?)').run(key, text, Date.now())
+  deps.db.prepare('INSERT OR REPLACE INTO llm_cache(key, response, created_at, place_id) VALUES (?, ?, ?, ?)').run(key, text, Date.now(), deps.placeId ?? null)
   return { text, cached: false }
 }
