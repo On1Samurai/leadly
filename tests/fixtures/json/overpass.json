@@ -1,0 +1,5 @@
+{"elements":[
+{"type":"node","id":1,"lat":53.9,"lon":27.5,"tags":{"name":"Кафе Один","amenity":"cafe","phone":"+375 29 1234567; +375 17 2223344","website":"https://cafe1.by","contact:instagram":"@cafe_one","contact:telegram":"https://t.me/cafe1","contact:whatsapp":"+375291234567","email":"a@b.by","addr:street":"Ленина","addr:housenumber":"5"}},
+{"type":"way","id":2,"center":{"lat":53.91,"lon":27.51},"tags":{"name":"Кафе Два","amenity":"cafe","contact:phone":"+375291112233","contact:website":"https://instagram.com/cafe2"}},
+{"type":"node","id":3,"lat":53.92,"lon":27.52,"tags":{"amenity":"cafe"}}
+]}

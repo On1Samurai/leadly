@@ -1,0 +1,272 @@
+[
+  {
+    "id": "cafe",
+    "title": "Кафе",
+    "osm": [
+      {
+        "amenity": "cafe"
+      }
+    ],
+    "googleType": "cafe",
+    "query": {
+      "ru": "кафе",
+      "uk": "кафе"
+    },
+    "menu": true
+  },
+  {
+    "id": "restaurant",
+    "title": "Ресторан",
+    "osm": [
+      {
+        "amenity": "restaurant"
+      }
+    ],
+    "googleType": "restaurant",
+    "query": {
+      "ru": "ресторан",
+      "uk": "ресторан"
+    },
+    "menu": true
+  },
+  {
+    "id": "bar",
+    "title": "Бар",
+    "osm": [
+      {
+        "amenity": "bar"
+      },
+      {
+        "amenity": "pub"
+      }
+    ],
+    "googleType": "bar",
+    "query": {
+      "ru": "бар",
+      "uk": "бар"
+    },
+    "menu": true
+  },
+  {
+    "id": "coffee",
+    "title": "Кофейня",
+    "osm": [
+      {
+        "amenity": "cafe",
+        "cuisine": "coffee_shop"
+      }
+    ],
+    "googleType": "coffee_shop",
+    "query": {
+      "ru": "кофейня",
+      "uk": "кав’ярня"
+    },
+    "menu": true
+  },
+  {
+    "id": "delivery",
+    "title": "Доставка еды",
+    "osm": [
+      {
+        "amenity": "fast_food",
+        "delivery": "yes"
+      },
+      {
+        "amenity": "restaurant",
+        "delivery": "yes"
+      }
+    ],
+    "googleType": "meal_delivery",
+    "query": {
+      "ru": "доставка еды",
+      "uk": "доставка їжі"
+    },
+    "menu": true
+  },
+  {
+    "id": "barber",
+    "title": "Барбершоп",
+    "osm": [
+      {
+        "shop": "hairdresser",
+        "hairdresser": "barber"
+      }
+    ],
+    "googleType": "barber_shop",
+    "query": {
+      "ru": "барбершоп",
+      "uk": "барбершоп"
+    },
+    "menu": true
+  },
+  {
+    "id": "hair",
+    "title": "Парикмахерская",
+    "osm": [
+      {
+        "shop": "hairdresser"
+      }
+    ],
+    "googleType": "hair_salon",
+    "query": {
+      "ru": "парикмахерская",
+      "uk": "перукарня"
+    },
+    "menu": true
+  },
+  {
+    "id": "nails",
+    "title": "Маникюр",
+    "osm": [
+      {
+        "shop": "beauty",
+        "beauty": "nails"
+      }
+    ],
+    "googleType": "nail_salon",
+    "query": {
+      "ru": "маникюр",
+      "uk": "манікюр"
+    },
+    "menu": true
+  },
+  {
+    "id": "beauty",
+    "title": "Салон красоты",
+    "osm": [
+      {
+        "shop": "beauty"
+      }
+    ],
+    "googleType": "beauty_salon",
+    "query": {
+      "ru": "салон красоты",
+      "uk": "салон краси"
+    },
+    "menu": true
+  },
+  {
+    "id": "car_wash",
+    "title": "Автомойка",
+    "osm": [
+      {
+        "amenity": "car_wash"
+      }
+    ],
+    "googleType": "car_wash",
+    "query": {
+      "ru": "автомойка",
+      "uk": "автомийка"
+    },
+    "menu": true
+  },
+  {
+    "id": "car_service",
+    "title": "Автосервис",
+    "osm": [
+      {
+        "shop": "car_repair"
+      }
+    ],
+    "googleType": "car_repair",
+    "query": {
+      "ru": "автосервис",
+      "uk": "автосервіс"
+    },
+    "menu": true
+  },
+  {
+    "id": "dentist",
+    "title": "Стоматология",
+    "osm": [
+      {
+        "amenity": "dentist"
+      },
+      {
+        "healthcare": "dentist"
+      }
+    ],
+    "googleType": "dentist",
+    "query": {
+      "ru": "стоматология",
+      "uk": "стоматологія"
+    },
+    "menu": true
+  },
+  {
+    "id": "fitness",
+    "title": "Фитнес",
+    "osm": [
+      {
+        "leisure": "fitness_centre"
+      },
+      {
+        "leisure": "sports_centre",
+        "sport": "fitness"
+      }
+    ],
+    "googleType": "gym",
+    "query": {
+      "ru": "фитнес",
+      "uk": "фітнес"
+    },
+    "menu": true
+  },
+  {
+    "id": "flowers",
+    "title": "Цветы",
+    "osm": [
+      {
+        "shop": "florist"
+      }
+    ],
+    "googleType": "florist",
+    "query": {
+      "ru": "цветы",
+      "uk": "квіти"
+    },
+    "menu": true
+  },
+  {
+    "id": "bakery",
+    "title": "Пекарня",
+    "osm": [
+      {
+        "shop": "bakery"
+      }
+    ],
+    "googleType": "bakery",
+    "query": {
+      "ru": "пекарня",
+      "uk": "пекарня"
+    },
+    "menu": true
+  },
+  {
+    "id": "b2b",
+    "title": "Все компании (B2B)",
+    "osm": [
+      {
+        "name": "*",
+        "shop": "*"
+      },
+      {
+        "name": "*",
+        "office": "*"
+      },
+      {
+        "name": "*",
+        "craft": "*"
+      },
+      {
+        "name": "*",
+        "amenity": "*"
+      }
+    ],
+    "query": {
+      "ru": "компания",
+      "uk": "компанія"
+    },
+    "menu": false
+  }
+]

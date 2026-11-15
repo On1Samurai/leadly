@@ -11,3 +11,7 @@ release/
 *.log
 .vite/
 coverage/
+.superpowers/
+*.tsbuildinfo
+*.pem
+docs/superpowers/

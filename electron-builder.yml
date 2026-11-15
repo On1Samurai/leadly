@@ -1,0 +1,39 @@
+appId: app.leadly.desktop
+productName: Leadly
+directories:
+  buildResources: build
+  output: release
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!tests/*'
+  - '!docs/*'
+  - '!.superpowers/**'
+  - '!.github/**'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!vitest.config.ts'
+  - '!{.env,.env.*,.npmrc}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+# categories/priors/signatures импортируются в бандл как JSON, extraResources не нужен;
+# resources/icon.png (трей) читается из app.asar через app.getAppPath()
+asarUnpack:
+  - '**/node_modules/better-sqlite3/**'
+  - '**/*.node'
+win:
+  executableName: leadly
+  icon: build/icon.ico
+  target: nsis
+publish:
+  provider: github
+  owner: On1Samurai
+  repo: leadly
+  # черновик создаёт workflow заранее (иначе exe и blockmap гонятся и создают два релиза), публикует после проверки
+  releaseType: draft
+nsis:
+  oneClick: true
+  perMachine: false
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  createDesktopShortcut: always
+  # asar без сжатия: при обновлении качается только изменённая часть кода, а не весь asar
+  differentialPackage: store-asar

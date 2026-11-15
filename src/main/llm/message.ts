@@ -1,0 +1,119 @@
+import { createHash } from 'node:crypto'
+import type Anthropic from '@anthropic-ai/sdk'
+import type { Db } from '../db/db'
+import type { Finding, FindingCode, Place, WebClass } from '../../shared/types'
+import { checkMessage, type CheckReason } from './check'
+import promptFile from './prompts/first-message.md?raw'
+
+export type Tone = 'business' | 'friendly' | 'short'
+export type Scenario = 'site' | 'no_site' | 'offer'
+export interface MessageInput {
+  scenario: Scenario; sells: string; tone: Tone; lang: 'ru' | 'uk'
+  place: { name: string; category: string; city: string; rating: number | null; reviews: number | null; webClass: WebClass }
+  findings: { code: FindingCode; evidence: string }[]
+}
+
+export class MessageRefused extends Error {}
+export class MessageRejected extends Error {}
+
+const PRIORITY: FindingCode[] = ['site_down', 'no_viewport', 'h_scroll', 'no_https', 'cert_invalid', 'old_footer_year',
+  'slow_load', 'no_menu_prices', 'broken_links', 'cms', 'small_text', 'cert_expiring']
+
+const nl = promptFile.indexOf('\n')
+const PROMPT_VERSION = /^version:\s*(\S+)/.exec(promptFile.slice(0, nl))?.[1] ?? '0'
+const SYSTEM_PROMPT = promptFile.slice(nl + 1).trim()
+
+export function buildMessageInput(
+  place: Place, city: string, findings: Finding[],
+  s: { sells: string; tone: Tone; lang: 'ru' | 'uk'; mode: 'local' | 'b2b' }
+): MessageInput {
+  const picked = findings
+    .filter((x) => x.confirmed)
+    .sort((a, b) => PRIORITY.indexOf(a.code) - PRIORITY.indexOf(b.code))
+    .slice(0, 2)
+    .map((x) => ({ code: x.code, evidence: x.evidence }))
+  let scenario: Scenario = 'offer'
+  if (place.webClass === 'own' && picked.length > 0) scenario = 'site'
+  else if (['none', 'social', 'template'].includes(place.webClass) && s.mode !== 'b2b') scenario = 'no_site'
+  return {
+    scenario, sells: s.sells, tone: s.tone, lang: s.lang,
+    place: { name: place.name, category: place.category, city, rating: place.rating, reviews: place.reviews, webClass: place.webClass },
+    findings: picked
+  }
+}
+
+export const cacheKey = (input: MessageInput): string =>
+  createHash('sha256').update(PROMPT_VERSION + JSON.stringify(input)).digest('hex')
+
+export function isTextReady(input: MessageInput, db: Db): boolean {
+  return db.prepare('SELECT 1 FROM llm_cache WHERE key = ?').get(cacheKey(input)) !== undefined
+}
+
+const REASONS: Record<CheckReason, string> = {
+  too_long: 'длиннее 300 символов',
+  unknown_number: 'упомянуто число, которого нет во входных данных',
+  empty: 'пустой или обрезанный ответ',
+  link: 'есть ссылка'
+}
+
+/** Один запрос к модели: системный промпт + сообщение -> текст. */
+export type Asker = (system: string, content: string) => Promise<{ text: string; truncated: boolean }>
+
+export function anthropicAsker(client: Pick<Anthropic, 'beta'>): Asker {
+  return async (system, content) => {
+    const res = await client.beta.messages.create({
+      model: 'claude-sonnet-5-5',
+      max_tokens: 4000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      output_config: { effort: 'low' },
+      system,
+      messages: [{ role: 'user', content }]
+    })
+    if (res.stop_reason === 'refusal') throw new MessageRefused('Модель отказалась отвечать')
+    const text = res.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim()
+    return { text, truncated: res.stop_reason === 'max_tokens' }
+  }
+}
+
+/** OpenAI-совместимый chat.completions (AnyModel, DeepSeek и т.п.). Ключ не попадает в тексты ошибок. */
+export function openaiAsker(cfg: { baseUrl: string; apiKey: string; model: string }, fetchFn: typeof fetch = fetch): Asker {
+  const url = cfg.baseUrl.replace(/\/+$/, '') + '/chat/completions'
+  return async (system, content) => {
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({
+        model: cfg.model, max_tokens: 1500, stream: false,
+        messages: [{ role: 'system', content: system }, { role: 'user', content }]
+      }),
+      signal: AbortSignal.timeout(60_000)
+    })
+    if (!res.ok) throw new Error(`llm_http_${res.status}`)
+    const j = (await res.json().catch(() => null)) as { choices?: { message?: { content?: string }; finish_reason?: string }[] } | null
+    const c = j?.choices?.[0]
+    if (!c) throw new Error('llm_bad_response')
+    if (c.finish_reason === 'content_filter') throw new MessageRefused('Модель отказалась отвечать')
+    return { text: (c.message?.content ?? '').trim(), truncated: c.finish_reason === 'length' }
+  }
+}
+
+export async function generateMessage(
+  input: MessageInput, deps: { ask: Asker; db: Db; placeId?: number }
+): Promise<{ text: string; cached: boolean }> {
+  const key = cacheKey(input)
+  const hit = deps.db.prepare('SELECT response FROM llm_cache WHERE key = ?').get(key) as { response: string } | undefined
+  if (hit) return { text: hit.response, cached: true }
+  const base = JSON.stringify(input)
+  const attempt = async (content: string): Promise<{ text: string; check: ReturnType<typeof checkMessage> }> => {
+    const r = await deps.ask(SYSTEM_PROMPT, content)
+    return { text: r.text, check: r.truncated ? { ok: false, reason: 'empty' } : checkMessage(r.text, input) }
+  }
+  let { text, check } = await attempt(base)
+  if (!check.ok) {
+    ;({ text, check } = await attempt(`${base}\n\nПредыдущий вариант отклонён: ${REASONS[check.reason]}. Исправь.`))
+    if (!check.ok) throw new MessageRejected(`Текст не прошёл проверку: ${check.reason}`)
+  }
+  deps.db.prepare('INSERT OR REPLACE INTO llm_cache(key, response, created_at, place_id) VALUES (?, ?, ?, ?)').run(key, text, Date.now(), deps.placeId ?? null)
+  return { text, cached: false }
+}
