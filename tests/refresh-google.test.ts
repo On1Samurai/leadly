@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb, type Db } from '../src/main/db/db'
 import { getPlace, insertPlace } from '../src/main/db/repo'
+import { licensed } from './helpers/license'
 import { buildHandlers, type IpcDeps } from '../src/main/ipc/handlers'
 import { AuditQueue } from '../src/main/audit/queue'
 import { setSecret, type SecretEnv } from '../src/main/secrets'
@@ -38,7 +39,8 @@ describe('places.refreshGoogle', () => {
   const deps = (): IpcDeps => ({
     db, secretEnv, userDataDir: dir, auditQueue: { push: (id: number) => { pushed.push(id) } } as unknown as AuditQueue,
     now: () => clock, rng: Math.random, osm: async () => [], saveDialog: async () => null,
-    anthropicFactory: () => { throw new Error('unused') }, openExternal: async () => undefined, writeClipboard: () => undefined
+    anthropicFactory: () => { throw new Error('unused') }, openExternal: async () => undefined, writeClipboard: () => undefined,
+    licensePublicKey: licensed(db)
   })
   const mk = (over: Partial<Omit<Place, 'id'>> = {}): number => insertPlace(db, {
     name: 'P', category: 'cafe', lat: 0, lon: 0, address: null, cityId: 1, cellId: null, phoneE164: null,

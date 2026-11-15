@@ -2,6 +2,7 @@ import { PASS_EVENT, type PassEvent } from '../../shared/ipc'
 import { enqueueAudits } from '../audit/queue'
 import { runPass, type PassControl, type PassParams } from '../search/pass'
 import { Budget, GoogleClient } from '../sources/google'
+import { requireLicense } from '../license'
 import { getSecret } from '../secrets'
 import { loadSettings } from '../settings'
 import { CATEGORIES, PRIORS } from './data'
@@ -14,6 +15,7 @@ export function passHandlers(t: Table, d: IpcDeps): { isRunning(): boolean } {
   let warnings: string[] = []
 
   define(t, 'pass.start', (e, p) => {
+    requireLicense(d.db, d.now(), d.licensePublicKey)
     if (current) throw new Error('pass_running')
     if (!CATEGORIES.some((c) => c.id === p.categoryId)) throw new Error('unknown_category')
     const city = d.db.prepare('SELECT 1 FROM cities WHERE id=?').get(p.cityId)

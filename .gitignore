@@ -13,3 +13,5 @@ release/
 coverage/
 .superpowers/
 *.tsbuildinfo
+*.pem
+docs/superpowers/

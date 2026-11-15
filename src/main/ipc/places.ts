@@ -1,3 +1,4 @@
+import { requireLicense } from '../license'
 import { readFileSync, unlinkSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import type { Channel, Contact, Finding, Place } from '../../shared/types'
@@ -155,6 +156,7 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
 
   const refreshing = new Set<number>()
   define(t, 'places.refreshGoogle', async (_e, id) => {
+    requireLicense(db, d.now(), d.licensePublicKey)
     const p = need(db, id)
     const key = getSecret(db, 'google', d.secretEnv)
     if (!key) throw new Error('no_google_key')
@@ -192,6 +194,7 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
   })
 
   define(t, 'message.generate', async (_e, id, tone) => {
+    requireLicense(db, d.now(), d.licensePublicKey)
     const p = need(db, id)
     const s = loadSettings(db)
     let ask: Asker

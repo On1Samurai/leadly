@@ -17,6 +17,7 @@ import { searchCity } from '../src/main/sources/nominatim'
 import { getPlace, insertPlace } from '../src/main/db/repo'
 import type { Place } from '../src/shared/types'
 import { cacheKey } from '../src/main/llm/message'
+import { licensed } from './helpers/license'
 import { nextAction, type NextActionInput } from '../src/shared/nextAction'
 
 const fakeSafe = (available = true): SecretEnv['safeStorage'] => ({
@@ -36,7 +37,8 @@ describe('ipc', () => {
     db, secretEnv, userDataDir: dir, auditQueue: new AuditQueue(1, async () => undefined),
     now: () => 1000, rng: Math.random, osm: () => gate,
     saveDialog: async () => null, anthropicFactory: () => { throw new Error('unused') },
-    openExternal: async () => undefined, writeClipboard: () => undefined
+    openExternal: async () => undefined, writeClipboard: () => undefined,
+    licensePublicKey: licensed(db)
   })
   const env = (over: Partial<SecretEnv> = {}): SecretEnv =>
     ({ safeStorage: fakeSafe(), isDev: false, env: {}, ...over })

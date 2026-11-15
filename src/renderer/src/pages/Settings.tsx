@@ -1,8 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { SecretName } from '../../../shared/ipc'
+import type { LicenseState, SecretName } from '../../../shared/ipc'
+import { updateErrorText } from '../../../shared/update'
 import type { AppSettings, NumKey, Tone } from '../../../shared/settings'
 import { DEFAULT_SETTINGS, NUM_LIMITS, parseNumDraft } from '../../../shared/settings'
 import { Button } from '../components/Button'
+import { LicenseForm } from '../components/LicenseForm'
+import { useUpdate } from '../useUpdate'
 import { Field, SecretField, TextInput, inputCls } from '../components/Field'
 import { CountryPicker, SellsPicker } from '../components/Pickers'
 import { KEY_HELP, errText } from '../lib'
@@ -92,6 +95,60 @@ function BotSection({ onError, tokenSaved }: { onError: (m: string | null) => vo
   )
 }
 
+function LicenseSection(): React.JSX.Element {
+  const [lic, setLic] = useState<LicenseState | null>(null)
+  const [change, setChange] = useState(false)
+  useEffect(() => { window.api.license.get().then(setLic).catch(() => undefined) }, [])
+  return (
+    <Section title="Лицензия">
+      <p className="text-sm">
+        {lic?.name ? `${lic.name} · ` : ''}
+        {lic?.exp ? `Активна до ${new Date(lic.exp).toLocaleDateString('ru-RU')}` : lic?.valid ? 'Бессрочная' : 'Не активирована'}
+      </p>
+      {change
+        ? <LicenseForm onActivated={(s) => { setLic(s); setChange(false) }} />
+        : <div><Button variant="ghost" onClick={() => setChange(true)}>Сменить ключ</Button></div>}
+    </Section>
+  )
+}
+
+function UpdateSection(): React.JSX.Element {
+  const u = useUpdate()
+  const [version, setVersion] = useState('…')
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => { window.api.app.version().then(setVersion).catch(() => undefined) }, [])
+  const run = (f: () => Promise<unknown>) => async (): Promise<void> => {
+    setErr(null)
+    try { await f() } catch (e) { setErr(updateErrorText((e as Error).message)) }
+  }
+  return (
+    <Section title="Обновления">
+      <p className="text-sm">Версия {version}</p>
+      <div className="flex flex-wrap items-center gap-3">
+        {u.state === 'available' && <>
+          <span className="text-sm">Доступна версия {u.version}</span>
+          <Button onClick={run(() => window.api.update.download())}>Скачать</Button>
+        </>}
+        {u.state === 'downloading' && (
+          <div className="flex w-full items-center gap-3" role="progressbar" aria-valuenow={u.percent ?? 0} aria-valuemin={0} aria-valuemax={100}>
+            <div className="h-2 flex-1 overflow-hidden rounded bg-line"><div className="h-full bg-fg" style={{ width: `${u.percent ?? 0}%` }} /></div>
+            <span className="font-mono text-xs">{u.percent ?? 0}%</span>
+          </div>)}
+        {u.state === 'downloaded' && <>
+          <span className="text-sm">Версия {u.version} загружена</span>
+          <Button onClick={run(() => window.api.update.install())}>Перезапустить и обновить</Button>
+        </>}
+        {u.state !== 'downloading' && u.state !== 'downloaded' && (
+          <Button variant="ghost" disabled={u.state === 'checking'} onClick={run(() => window.api.update.check())}>
+            {u.state === 'checking' ? 'Проверяем…' : 'Проверить обновления'}
+          </Button>)}
+        {u.state === 'none' && <span className="text-sm text-muted">{u.message === 'dev' ? 'В режиме разработки обновления отключены' : 'Установлена последняя версия'}</span>}
+      </div>
+      {(err || u.state === 'error') && <p role="alert" className="text-sm text-danger">{err ?? updateErrorText(u.message)}</p>}
+    </Section>
+  )
+}
+
 export function Settings(): React.JSX.Element {
   const [s, setS] = useState<AppSettings>(DEFAULT_SETTINGS)
   const [has, setHas] = useState<Record<SecretName, boolean>>({ llm: false, anthropic: false, google: false, telegram: false })
@@ -132,6 +189,9 @@ export function Settings(): React.JSX.Element {
         <SecretField {...KEY_HELP.google} saved={has.google} onSave={saveKey('google')} />
         <SecretField {...KEY_HELP.telegram} saved={has.telegram} onSave={saveKey('telegram')} />
       </Section>
+
+      <LicenseSection />
+      <UpdateSection />
 
       <BotSection onError={setErr} tokenSaved={has.telegram} />
 

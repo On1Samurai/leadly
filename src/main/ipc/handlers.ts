@@ -8,6 +8,7 @@ import { passHandlers } from './pass'
 import { writeHandlers } from './write'
 import { placesHandlers } from './places'
 import type { TodayView } from '../../shared/ipc'
+import { licenseState, setLicense } from '../license'
 import { backupTo } from '../backup'
 import { todayView } from '../today'
 import { computeMission } from '../../shared/mission'
@@ -58,6 +59,16 @@ export function createIpc(d: IpcDeps): { handlers: Record<ChannelName, Fn>; isPa
   })
 
   define(t, 'app.dataDir', () => d.userDataDir)
+  define(t, 'app.version', async () => d.appVersion?.() ?? '0.0.0')
+
+  define(t, 'license.get', () => licenseState(db, d.now(), d.licensePublicKey))
+  define(t, 'license.set', (_e, key) => setLicense(db, key, d.now(), d.licensePublicKey))
+
+  const up = d.updater
+  define(t, 'update.check', () => up ? up.check() : { state: 'none', message: 'dev' })
+  define(t, 'update.download', () => up?.download())
+  define(t, 'update.install', () => up?.install())
+  define(t, 'update.status', () => up ? up.status() : { state: 'none', message: 'dev' })
 
   define(t, 'backup.export', async () => {
     const dest = await d.saveDialog(`leadly-${new Date(d.now()).toISOString().slice(0, 10)}.db`)

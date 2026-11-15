@@ -16,6 +16,7 @@ import { botNotifier } from './bot/notifier'
 import { getSecret } from './secrets'
 import { makeHandlers, noreplyRescore, Scheduler } from './scheduler'
 import { loadSettings } from './settings'
+import { createUpdater } from './updater'
 import { buildOverpassQuery, fetchOverpass, parseOverpass } from './sources/osm'
 
 let db: Db | null = null
@@ -108,6 +109,8 @@ app.whenReady().then(() => {
     onSecretSet: (name) => { if (name === 'telegram') botMgr.restart().catch((e) => console.error('bot restart failed', (e as Error).name)) },
     onSettingsSet: () => applyAutostart(conn),
     userDataDir,
+    appVersion: () => app.getVersion(),
+    updater: createUpdater() ?? undefined,
     auditQueue: queue,
     onPassEnd: maybeQuit,
     now: Date.now,

@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 import type { Anthropic } from '@anthropic-ai/sdk'
-import type { ChannelName } from '../../shared/ipc'
+import type { ChannelName, UpdateEvent } from '../../shared/ipc'
 import type { AuditQueue } from '../audit/queue'
 import type { Db } from '../db/db'
 import type { SecretEnv } from '../secrets'
@@ -31,6 +31,11 @@ export interface IpcDeps {
   /** Сменился секрет (токен бота) или настройка (автозапуск, фон). */
   onSecretSet?: (name: string) => void
   onSettingsSet?: () => void
+  appVersion?: () => string
+  /** Автообновление; в dev и тестах отсутствует. */
+  updater?: { check(): Promise<UpdateEvent>; download(): Promise<void>; install(): void; status(): UpdateEvent }
+  /** Публичный ключ проверки лицензий; в тестах подменяется. */
+  licensePublicKey?: string
   anthropicFactory: (apiKey: string) => Pick<Anthropic, 'beta'>
 }
 

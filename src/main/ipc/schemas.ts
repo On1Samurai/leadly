@@ -78,5 +78,9 @@ export const ARGS = {
   'bot.bindCode': none,
   'bot.unlink': none,
   'bot.status': none,
-  'backup.export': none
+  'backup.export': none,
+  'license.get': none,
+  'license.set': z.tuple([z.string().max(4000)]),
+  'update.check': none, 'update.download': none, 'update.install': none, 'update.status': none,
+  'app.version': none
 } satisfies Record<ChannelName, z.ZodType>

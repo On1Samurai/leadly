@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { LicenseState } from '../../shared/ipc'
 import type { MissionStep } from '../../shared/mission'
 import { MissionBar } from './components/MissionBar'
 import { Sidebar } from './components/Sidebar'
 import { NavContext, type NavParams, type Page } from './nav'
 import { errText } from './lib'
+import { Activation } from './pages/Activation'
 import { Base } from './pages/Base'
 import { Help } from './pages/Help'
 import { Onboarding } from './pages/Onboarding'
@@ -16,7 +18,9 @@ function App(): React.JSX.Element {
   const [params, setParams] = useState<NavParams>({})
   const [mission, setMission] = useState<MissionStep>(1)
   const [err, setErr] = useState<string | null>(null)
+  const [lic, setLic] = useState<LicenseState | null>(null)
 
+  useEffect(() => { window.api.license.get().then(setLic).catch((e) => setErr(errText(e))) }, [])
   useEffect(() => {
     window.api.settings.get().then((s) => setPage(s.onboarded ? 'search' : 'onboarding')).catch((e) => setErr(errText(e)))
   }, [])
@@ -30,7 +34,8 @@ function App(): React.JSX.Element {
 
   let body: React.JSX.Element
   if (err) body = <p role="alert" className="p-8 text-danger">{err}</p>
-  else if (!page) body = <div />
+  else if (!lic || !page) body = <div />
+  else if (!lic.valid) body = <Activation onActivated={setLic} />
   else if (page === 'onboarding') body = <Onboarding onDone={() => navigate('search')} />
   else {
     body = (

@@ -23,6 +23,11 @@ win:
   executableName: leadly
   icon: build/icon.ico
   target: nsis
+publish:
+  provider: github
+  owner: On1Samurai
+  repo: leadly
+  releaseType: release
 nsis:
   oneClick: true
   perMachine: false
