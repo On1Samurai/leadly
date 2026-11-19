@@ -17,6 +17,7 @@ import { getSecret } from './secrets'
 import { makeHandlers, noreplyRescore, Scheduler } from './scheduler'
 import { loadSettings } from './settings'
 import { createUpdater } from './updater'
+import { realSleep } from './sources/http'
 import { buildOverpassQuery, fetchOverpass, parseOverpass } from './sources/osm'
 
 let db: Db | null = null
@@ -89,6 +90,17 @@ const applyAutostart = (conn: Db): void => {
   app.setLoginItemSettings({ openAtLogin: loadSettings(conn).autostart, args: ['--hidden'] })
 }
 
+/** HTML -> PDF через скрытое окно; окно закрывается и при ошибке. */
+async function printPdf(html: string): Promise<Buffer> {
+  const win = new BrowserWindow({ show: false, webPreferences: { javascript: false } })
+  try {
+    await win.loadURL(`data:text/html;base64,${Buffer.from(html).toString('base64')}`)
+    return await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { top: 0, bottom: 0, left: 0, right: 0 } })
+  } finally {
+    win.destroy()
+  }
+}
+
 app.whenReady().then(() => {
   if (!app.hasSingleInstanceLock()) return
   const userDataDir = app.getPath('userData')
@@ -116,9 +128,26 @@ app.whenReady().then(() => {
     now: Date.now,
     rng: Math.random,
     osm: (bbox, cat) => fetchOverpass(buildOverpassQuery(bbox, cat)).then(parseOverpass),
-    saveDialog: async (defaultName) => {
-      const r = await dialog.showSaveDialog({ defaultPath: defaultName, filters: [{ name: 'SQLite', extensions: ['db'] }] })
+    saveDialog: async (defaultName, kind = 'db') => {
+      const filters = kind === 'pdf' ? [{ name: 'PDF', extensions: ['pdf'] }] : [{ name: 'SQLite', extensions: ['db'] }]
+      const r = await dialog.showSaveDialog({ defaultPath: defaultName, filters })
       return r.canceled || !r.filePath ? null : r.filePath
+    },
+    fetch: (input, init) => fetch(input, init),
+    sleep: realSleep,
+    resizeImage: (b) => {
+      const img = nativeImage.createFromBuffer(b)
+      const { width } = img.getSize()
+      return (width > 1200 ? img.resize({ width: 1200 }) : img).toJPEG(80)
+    },
+    printPdf,
+    openDialog: async (kind) => {
+      const filters = {
+        folder: [], zip: [{ name: 'ZIP', extensions: ['zip'] }], html: [{ name: 'HTML', extensions: ['html', 'htm'] }],
+        image: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]
+      }[kind]
+      const r = await dialog.showOpenDialog({ properties: kind === 'folder' ? ['openDirectory'] : ['openFile'], filters })
+      return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
     },
     openExternal: (url) => shell.openExternal(url),
     writeClipboard: (text) => clipboard.writeText(text),

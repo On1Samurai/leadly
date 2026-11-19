@@ -5,6 +5,7 @@ import type { AuditQueue } from '../audit/queue'
 import type { Db } from '../db/db'
 import type { SecretEnv } from '../secrets'
 import type { BBox, Category, RawPlace } from '../../shared/types'
+import type { FetchFn, SleepFn } from '../sources/http'
 import { ARGS } from './schemas'
 
 export interface Ev { sender: { send(channel: string, ...a: unknown[]): void } }
@@ -21,7 +22,7 @@ export interface IpcDeps {
   now: () => number
   rng: () => number
   osm: (bbox: BBox, cat: Category) => Promise<RawPlace[]>
-  saveDialog: (defaultName: string) => Promise<string | null>
+  saveDialog: (defaultName: string, kind?: 'db' | 'pdf') => Promise<string | null>
   /** shell.openExternal; в тестах подменяется. */
   openExternal: (url: string) => Promise<void>
   /** clipboard.writeText */
@@ -36,6 +37,13 @@ export interface IpcDeps {
   updater?: { check(): Promise<UpdateEvent>; download(): Promise<void>; install(): void; status(): UpdateEvent }
   /** Публичный ключ проверки лицензий; в тестах подменяется. */
   licensePublicKey?: string
+  /** GitHub, Cloudflare, Worker. */
+  fetch: FetchFn
+  sleep: SleepFn
+  /** JPEG, ширина ≤ 1200, качество 80. */
+  resizeImage: (buf: Buffer) => Buffer
+  printPdf: (html: string) => Promise<Buffer>
+  openDialog: (kind: 'folder' | 'zip' | 'html' | 'image') => Promise<string | null>
   anthropicFactory: (apiKey: string) => Pick<Anthropic, 'beta'>
 }
 

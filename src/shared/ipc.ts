@@ -9,7 +9,7 @@ export interface LicenseState { valid: boolean; name?: string; exp?: number | nu
 export type UpdateState = 'idle' | 'checking' | 'available' | 'none' | 'downloading' | 'downloaded' | 'error'
 export interface UpdateEvent { state: UpdateState; version?: string; percent?: number; message?: string }
 
-export type SecretName = 'llm' | 'anthropic' | 'google' | 'telegram'
+export type SecretName = 'llm' | 'anthropic' | 'google' | 'telegram' | 'github' | 'cloudflare'
 
 export interface CityHit { id: string; name: string; displayName: string; bbox: BBox; polygon: GeoPolygon | GeoMultiPolygon | null }
 export interface PassSummary { passId: number; cellsDone: number; newCount: number; dupCount: number; googleUsed: number; stopped: boolean }

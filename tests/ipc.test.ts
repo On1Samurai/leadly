@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { stage2Deps } from './helpers/deps'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb, type Db } from '../src/main/db/db'
 import { getSetting } from '../src/main/db/repo'
-import { getSecret, hasSecret, setSecret, type SecretEnv } from '../src/main/secrets'
+import { getSecret, getWorkerSecret, hasSecret, setSecret, setWorkerSecret, type SecretEnv } from '../src/main/secrets'
 import { loadSettings } from '../src/main/settings'
 import { DEFAULT_SETTINGS } from '../src/shared/settings'
 import { SettingsPatchSchema } from '../src/main/ipc/schemas'
@@ -36,7 +37,7 @@ describe('ipc', () => {
   const mkDeps = (secretEnv: SecretEnv): IpcDeps => ({
     db, secretEnv, userDataDir: dir, auditQueue: new AuditQueue(1, async () => undefined),
     now: () => 1000, rng: Math.random, osm: () => gate,
-    saveDialog: async () => null, anthropicFactory: () => { throw new Error('unused') },
+    saveDialog: async () => null, anthropicFactory: () => { throw new Error('unused') }, ...stage2Deps,
     openExternal: async () => undefined, writeClipboard: () => undefined,
     licensePublicKey: licensed(db)
   })
@@ -58,11 +59,38 @@ describe('ipc', () => {
     const ev = {} as never
     await h['secrets.set'](ev, 'google', 'KEY-123')
     const has = (await h['secrets.has'](ev)) as Record<string, unknown>
-    expect(has).toEqual({ llm: false, anthropic: false, google: true, telegram: false })
+    expect(has).toEqual({ llm: false, anthropic: false, google: true, telegram: false, github: false, cloudflare: false })
     expect(JSON.stringify(has)).not.toContain('KEY-123')
     const raw = db.prepare("SELECT value FROM settings WHERE key='secret:google'").get() as { value: string }
     expect(raw.value).not.toContain('KEY-123')
     await expect(h['secrets.set'](ev, 'nope', 'x')).rejects.toThrow('bad_args')
+  })
+
+  it('secrets github and cloudflare', async () => {
+    const h = buildHandlers(mkDeps(env()))
+    const ev = {} as never
+    await h['secrets.set'](ev, 'github', 'T')
+    expect(((await h['secrets.has'](ev)) as Record<string, boolean>).github).toBe(true)
+    await expect(h['secrets.set'](ev, 'worker', 'x')).rejects.toThrow('bad_args')
+  })
+
+  it('worker secret is main-only', async () => {
+    const e = env()
+    expect(getWorkerSecret(db, e)).toBeNull()
+    setWorkerSecret(db, 'W-1', e)
+    expect(getWorkerSecret(db, e)).toBe('W-1')
+    const has = (await buildHandlers(mkDeps(e))['secrets.has']({} as never)) as Record<string, boolean>
+    expect(Object.keys(has)).not.toContain('worker')
+  })
+
+  it('demo settings', async () => {
+    const h = buildHandlers(mkDeps(env()))
+    const ev = {} as never
+    await h['settings.set'](ev, { demoTg: 'my_nick', demoGoogleDaily: 10 })
+    expect(loadSettings(db)).toMatchObject({ demoTg: 'my_nick', demoGoogleDaily: 10 })
+    expect(loadSettings(db).demoTg).not.toBe(DEFAULT_SETTINGS.demoTg)
+    await expect(h['settings.set'](ev, { demoTg: '@bad nick' })).rejects.toThrow('bad_args')
+    await expect(h['settings.set'](ev, { demoGoogleDaily: 5000 })).rejects.toThrow('bad_args')
   })
 
   it('secrets: roundtrip, delete by empty string, refuse without encryption', () => {

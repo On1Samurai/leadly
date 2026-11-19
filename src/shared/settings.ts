@@ -12,6 +12,10 @@ export interface AppSettings {
   autostart: boolean; runInBackground: boolean; onboarded: boolean
   /** Нейросеть для текстов: OpenAI-совместимый сервис (AnyModel, DeepSeek) или Anthropic. */
   llmProvider: 'openai' | 'anthropic'; llmBaseUrl: string; llmModel: string
+  /** Ник в Telegram (без @) для «Хочу так» и подписи демо. */
+  demoTg: string
+  /** Лимит платных запросов Google на демо в день. */
+  demoGoogleDaily: number
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -19,10 +23,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   densityThreshold: 3, nextPageThreshold: 10, randomEvery: 5, googleBudget: 50,
   dailyWriteLimit: 30, dailyGoal: 6, noReplyDays: 7, digestTime: '09:00',
   autostart: false, runInBackground: false, onboarded: false,
-  llmProvider: 'openai', llmBaseUrl: 'https://anymodel.org/v1', llmModel: 'ds/deepseek-v4-flash'
+  llmProvider: 'openai', llmBaseUrl: 'https://anymodel.org/v1', llmModel: 'ds/deepseek-v4-flash',
+  demoTg: '', demoGoogleDaily: 25
 }
 
-export type NumKey = 'densityThreshold' | 'nextPageThreshold' | 'randomEvery' | 'googleBudget' | 'dailyWriteLimit' | 'dailyGoal' | 'noReplyDays'
+export type NumKey = 'densityThreshold' | 'nextPageThreshold' | 'randomEvery' | 'googleBudget' | 'dailyWriteLimit' | 'dailyGoal' | 'noReplyDays' | 'demoGoogleDaily'
 /** Единый источник диапазонов числовых настроек: zod-схема в main и поля в Settings. */
 export const NUM_LIMITS: Record<NumKey, { min: number; max: number }> = {
   densityThreshold: { min: 0, max: 1_000_000 },
@@ -31,7 +36,8 @@ export const NUM_LIMITS: Record<NumKey, { min: number; max: number }> = {
   googleBudget: { min: 0, max: 1_000_000 },
   dailyWriteLimit: { min: 1, max: 1_000_000 },
   dailyGoal: { min: 1, max: 1_000_000 },
-  noReplyDays: { min: 1, max: 1_000_000 }
+  noReplyDays: { min: 1, max: 1_000_000 },
+  demoGoogleDaily: { min: 0, max: 1000 }
 }
 
 /** Проверка черновика числа: целое в диапазоне, иначе null. */

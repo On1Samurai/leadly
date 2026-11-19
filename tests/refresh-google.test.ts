@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { stage2Deps } from './helpers/deps'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -39,7 +40,7 @@ describe('places.refreshGoogle', () => {
   const deps = (): IpcDeps => ({
     db, secretEnv, userDataDir: dir, auditQueue: { push: (id: number) => { pushed.push(id) } } as unknown as AuditQueue,
     now: () => clock, rng: Math.random, osm: async () => [], saveDialog: async () => null,
-    anthropicFactory: () => { throw new Error('unused') }, openExternal: async () => undefined, writeClipboard: () => undefined,
+    anthropicFactory: () => { throw new Error('unused') }, ...stage2Deps, openExternal: async () => undefined, writeClipboard: () => undefined,
     licensePublicKey: licensed(db)
   })
   const mk = (over: Partial<Omit<Place, 'id'>> = {}): number => insertPlace(db, {

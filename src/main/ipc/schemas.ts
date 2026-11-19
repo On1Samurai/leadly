@@ -30,7 +30,9 @@ export const SettingsPatchSchema = z.object({
   onboarded: bool,
   llmProvider: z.enum(['openai', 'anthropic']),
   llmBaseUrl: z.string().trim().max(300).url().refine((u) => u.startsWith('https://'), 'https only'),
-  llmModel: z.string().trim().min(1).max(200)
+  llmModel: z.string().trim().min(1).max(200),
+  demoTg: z.string().trim().regex(/^[A-Za-z0-9_]{0,32}$/),
+  demoGoogleDaily: num('demoGoogleDaily')
 }).partial().strict()
 
 const status = z.enum(STATUSES)
@@ -45,7 +47,7 @@ const none = z.tuple([])
 export const ARGS = {
   'settings.get': none,
   'settings.set': z.tuple([SettingsPatchSchema]),
-  'secrets.set': z.tuple([z.enum(['llm', 'anthropic', 'google', 'telegram']), z.string().max(2000)]),
+  'secrets.set': z.tuple([z.enum(['llm', 'anthropic', 'google', 'telegram', 'github', 'cloudflare']), z.string().max(2000)]),
   'secrets.has': none,
   'city.search': z.tuple([z.string().trim().min(1).max(200)]),
   'city.save': z.tuple([z.object({ id: z.string().min(1).max(100) }).strict()]),
