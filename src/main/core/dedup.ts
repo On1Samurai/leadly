@@ -13,7 +13,7 @@ const TR: Record<string, string> = {
   щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya', і: 'i', ї: 'yi', є: 'ye', ґ: 'g', ў: 'u'
 }
 
-const translit = (s: string): string => Array.from(s, (ch) => TR[ch] ?? ch).join('')
+export const translit = (s: string): string => Array.from(s, (ch) => TR[ch] ?? ch).join('')
 
 export function normalizeName(name: string): string {
   const base = name.toLowerCase().replace(/ё/g, 'е').replace(/[«»"'„“”]/g, '')

@@ -1,3 +1,4 @@
+import type { DemoKind } from './demo/types'
 export type WebClass = 'none' | 'social' | 'template' | 'own';
 export type PhoneType = 'mobile' | 'fixed' | 'unknown';
 export type Status = 'new' | 'written' | 'replied' | 'demo_opened' | 'call' | 'deal' | 'refused' | 'later';
@@ -27,5 +28,5 @@ export interface Finding { code: FindingCode; confirmed: boolean; evidence: stri
  */
 export interface Category {
   id: string; title: string; osm: Record<string, string>[]; googleType?: string;
-  query: Record<'ru' | 'uk', string>; menu?: boolean;
+  query: Record<'ru' | 'uk', string>; menu?: boolean; demoKind?: DemoKind;
 }
