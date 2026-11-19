@@ -15,15 +15,30 @@ const ALLOWED = new Set([
 
 const norm = (p: string): string => p.replace(/\\/g, '/')
 
-async function walk(root: string, rel: string, out: ImportedFile[]): Promise<void> {
+const JUNK_DIRS = new Set(['__macosx', '.git'])
+const JUNK_FILES = new Set(['.ds_store', 'thumbs.db'])
+const isJunk = (p: string): boolean => {
+  const segs = norm(p).split('/').map((x) => x.toLowerCase())
+  return segs.some((x) => JUNK_DIRS.has(x)) || JUNK_FILES.has(segs[segs.length - 1])
+}
+
+// Win32 trims trailing space/dot, so "..␠" would act as ".."
+const badPath = (p: string): boolean =>
+  !p || p.startsWith('/') || /^[a-zA-Z]:/.test(p) || /[\u0000-\u001f]/.test(p) ||
+  p.split('/').some((s) => s === '' || s === '.' || s === '..' || /[ .]$/.test(s))
+
+async function walk(root: string, rel: string, out: ImportedFile[], acc: { total: number }): Promise<void> {
   for (const name of await readdir(join(root, rel))) {
     const r = rel ? `${rel}/${name}` : name
+    if (isJunk(r)) continue
     const full = join(root, r)
     const st = await lstat(full)
     if (st.isSymbolicLink()) throw new Error('import_bad_path')
-    if (st.isDirectory()) await walk(root, r, out)
+    if (st.isDirectory()) await walk(root, r, out, acc)
     else if (st.isFile()) {
-      if (out.length >= MAX_FILES + 1) throw new Error('import_too_many')
+      if (out.length >= MAX_FILES) throw new Error('import_too_many')
+      acc.total += st.size
+      if (acc.total > MAX_BYTES) throw new Error('import_too_big')
       out.push({ path: r, content: await readFile(full) })
     }
   }
@@ -33,13 +48,15 @@ export async function readImport(src: { kind: 'folder' | 'zip' | 'html'; path: s
   if (src.kind === 'html') return [{ path: 'index.html', content: await readFile(src.path) }]
   if (src.kind === 'folder') {
     const out: ImportedFile[] = []
-    await walk(src.path, '', out)
+    await walk(src.path, '', out, { total: 0 })
     return out
   }
   let total = 0
+  let count = 0
   const entries = unzipSync(new Uint8Array(await readFile(src.path)), {
     filter: (file) => {
-      if (file.name.endsWith('/')) return false
+      if (file.name.endsWith('/') || isJunk(file.name)) return false
+      if (++count > MAX_FILES) throw new Error('import_too_many')
       total += file.originalSize
       if (total > MAX_BYTES) throw new Error('import_too_big')
       return true
@@ -49,15 +66,15 @@ export async function readImport(src: { kind: 'folder' | 'zip' | 'html'; path: s
 }
 
 export function validateImport(files: ImportedFile[]): ImportedFile[] {
-  let list = files.map((x) => ({ path: norm(x.path), content: x.content }))
-  for (const { path } of list) {
-    if (!path || path.startsWith('/') || /^[a-zA-Z]:/.test(path) || path.split('/').some((s) => s === '..'))
-      throw new Error('import_bad_path')
-  }
+  let list = files.map((x) => ({ path: norm(x.path), content: x.content })).filter((x) => !isJunk(x.path))
+  if (list.some((x) => badPath(x.path))) throw new Error('import_bad_path')
   const top = list[0]?.path.split('/')[0]
-  if (list.length && list.every((x) => x.path.includes('/') && x.path.startsWith(top + '/')) &&
+  if (list.length && list.every((x) => x.path.startsWith(top + '/')) &&
       !list.some((x) => x.path.toLowerCase() === 'index.html'))
     list = list.map((x) => ({ ...x, path: x.path.slice(top.length + 1) }))
+  list = list.map((x) => (x.path.toLowerCase() === 'index.html' ? { ...x, path: 'index.html' } : x))
+  if (list.some((x) => badPath(x.path)) || new Set(list.map((x) => x.path.toLowerCase())).size !== list.length)
+    throw new Error('import_bad_path')
   if (list.length > MAX_FILES) throw new Error('import_too_many')
   if (list.reduce((s, x) => s + x.content.length, 0) > MAX_BYTES) throw new Error('import_too_big')
   for (const { path } of list) {
@@ -65,12 +82,18 @@ export function validateImport(files: ImportedFile[]): ImportedFile[] {
     const dot = base.lastIndexOf('.')
     if (dot < 0 || !ALLOWED.has(base.slice(dot + 1).toLowerCase())) throw new Error('import_bad_type')
   }
-  if (!list.some((x) => x.path.toLowerCase() === 'index.html')) throw new Error('import_no_index')
+  if (!list.some((x) => x.path === 'index.html')) throw new Error('import_no_index')
   return list
 }
 
 const escHtml = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+// Works on bytes: markers are ASCII, so a latin1 view finds them in any ASCII-compatible encoding.
+// shortcut: UTF-16 HTML is not handled, add if such sites show up.
+function splice(buf: Buffer, at: number, snippet: string): Buffer {
+  return Buffer.concat([buf.subarray(0, at), Buffer.from(snippet, 'utf8'), buf.subarray(at)])
+}
 
 export function injectTracking(files: ImportedFile[], links: DemoLinks, badge: boolean, lang: 'ru' | 'uk'): ImportedFile[] {
   const track =
@@ -79,11 +102,14 @@ export function injectTracking(files: ImportedFile[], links: DemoLinks, badge: b
   const badgeHtml = `<a href="${links.want}">${labels[lang].badge} @${escHtml(links.tg)}</a>`
   return files.map((f) => {
     if (!/\.html$/i.test(f.path)) return f
-    let s = f.content.toString('utf8')
-    if (/<\/head>/i.test(s)) s = s.replace(/<\/head>/i, (m) => track + m)
-    else if (/<body[^>]*>/i.test(s)) s = s.replace(/<body[^>]*>/i, (m) => m + track)
-    else s = track + s
-    if (badge) s = /<\/body>/i.test(s) ? s.replace(/<\/body>/i, (m) => badgeHtml + m) : s + badgeHtml
-    return { path: f.path, content: Buffer.from(s) }
+    let buf = f.content
+    const head = /<\/head>/i.exec(buf.toString('latin1'))
+    const body = /<body[^>]*>/i.exec(buf.toString('latin1'))
+    buf = splice(buf, head ? head.index : body ? body.index + body[0].length : 0, track)
+    if (badge) {
+      const end = /<\/body>/i.exec(buf.toString('latin1'))
+      buf = splice(buf, end ? end.index : buf.length, badgeHtml)
+    }
+    return { path: f.path, content: buf }
   })
 }

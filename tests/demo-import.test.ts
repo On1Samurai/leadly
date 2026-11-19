@@ -31,6 +31,20 @@ describe('validateImport', () => {
     expect(err(() => validateImport([f('index.html'), f('x.php')]))).toBe('import_bad_type')
     expect(err(() => validateImport([f('index.html'), f('noext')]))).toBe('import_bad_type')
   })
+  it('rejects tricky paths, also after strip', () => {
+    for (const p of ['site//etc/x.css', 'a/./b.css', '.. /x.css', 'a\\..\\b.css', '\\\\srv\\share\\x.css', 'a/b.css\u0000', 'a/b /c.css', 'a./b.css'])
+      expect(err(() => validateImport([f('site/index.html'), f(p)])), p).toBe('import_bad_path')
+  })
+  it('rejects duplicates after normalization', () => {
+    expect(err(() => validateImport([f('index.html'), f('a\\b.css'), f('a/b.css')]))).toBe('import_bad_path')
+    expect(err(() => validateImport([f('index.html'), f('Index.html')]))).toBe('import_bad_path')
+  })
+  it('root Index.HTML renamed to index.html', () =>
+    expect(validateImport([f('Index.HTML')]).map((x) => x.path)).toEqual(['index.html']))
+  it('ignores junk entries', () => {
+    const r = validateImport([f('index.html'), f('__MACOSX/._index.html'), f('.DS_Store'), f('a/Thumbs.db'), f('.git/config')])
+    expect(r.map((x) => x.path)).toEqual(['index.html'])
+  })
   it('extensions case-insensitive', () => expect(validateImport([f('index.HTML'), f('A.PNG')])).toHaveLength(2))
 })
 
@@ -40,6 +54,13 @@ describe('injectTracking', () => {
   it('before </head>', () => {
     const [r] = injectTracking([f('index.html', '<html><HEAD></HEAD><body>hi</body></html>')], links, false, 'ru')
     expect(r.content.toString()).toBe(`<html><HEAD>${meta}${pix}</HEAD><body>hi</body></html>`)
+  })
+  it('keeps non-UTF-8 bytes intact', () => {
+    const cp = Buffer.from([0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2])
+    const src = Buffer.concat([Buffer.from('<head></head><body>'), cp, Buffer.from('</body>')])
+    const [r] = injectTracking([{ path: 'index.html', content: src }], links, true, 'ru')
+    expect(r.content.includes(cp)).toBe(true)
+    expect(r.content.toString('latin1')).toContain('noindex')
   })
   it('no head: after body tag', () => {
     const [r] = injectTracking([f('index.html', '<body class="a">hi</body>')], links, false, 'ru')
@@ -86,6 +107,27 @@ describe('readImport', () => {
     writeFileSync(join(d, 'index.html'), 'hi'); writeFileSync(join(d, 's', 'a.css'), 'b')
     const r = await readImport({ kind: 'folder', path: d })
     expect(r.map((x) => x.path).sort()).toEqual(['index.html', 's/a.css'])
+  })
+  it('folder: too many files early', async () => {
+    const d = tmp()
+    for (let i = 0; i < 201; i++) writeFileSync(join(d, `${i}.css`), '')
+    await expect(readImport({ kind: 'folder', path: d })).rejects.toThrow('import_too_many')
+  })
+  it('folder: too big', async () => {
+    const d = tmp(); writeFileSync(join(d, 'a.js'), Buffer.alloc(21 * 1024 * 1024))
+    await expect(readImport({ kind: 'folder', path: d })).rejects.toThrow('import_too_big')
+  })
+  it('folder: skips junk (.git, .DS_Store)', async () => {
+    const d = tmp(); mkdirSync(join(d, '.git')); writeFileSync(join(d, '.git', 'x'), 'a')
+    writeFileSync(join(d, 'index.html'), 'hi'); writeFileSync(join(d, '.DS_Store'), 'a')
+    expect((await readImport({ kind: 'folder', path: d })).map((x) => x.path)).toEqual(['index.html'])
+  })
+  it('zip: too many entries', async () => {
+    const d = tmp()
+    const o: Record<string, Uint8Array> = {}
+    for (let i = 0; i < 201; i++) o[`${i}.css`] = new Uint8Array(1)
+    writeFileSync(join(d, 'a.zip'), zipSync(o))
+    await expect(readImport({ kind: 'zip', path: join(d, 'a.zip') })).rejects.toThrow('import_too_many')
   })
   it('folder symlink skipped -> bad path', async () => {
     const d = tmp(); writeFileSync(join(d, 'index.html'), 'hi')
