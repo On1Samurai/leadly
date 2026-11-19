@@ -1,4 +1,5 @@
 import type { Db } from '../db/db'
+import { getSetting, setSetting } from '../db/repo'
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 
@@ -22,4 +23,19 @@ export function dailyGate(db: Db, now: number, limit: number): { allowed: boolea
 export function countOpen(db: Db, now: number): void {
   db.prepare('INSERT INTO daily(date, links_opened) VALUES (?, 1) ON CONFLICT(date) DO UPDATE SET links_opened = links_opened + 1')
     .run(localDate(now))
+}
+
+/** Атомарно списывает n из дневного счётчика Google-запросов демо; не хватает — false, ничего не списано. */
+export function takeDemoGoogle(db: Db, now: number, n: number, limit: number): boolean {
+  const date = localDate(now)
+  const cur = getSetting<{ date: string; n: number }>(db, 'demoGoogle', { date, n: 0 })
+  const used = cur.date === date ? cur.n : 0
+  if (used + n > limit) return false
+  setSetting(db, 'demoGoogle', { date, n: used + n })
+  return true
+}
+
+export function demoGoogleLeft(db: Db, now: number, limit: number): number {
+  const cur = getSetting<{ date: string; n: number }>(db, 'demoGoogle', { date: '', n: 0 })
+  return Math.max(0, limit - (cur.date === localDate(now) ? cur.n : 0))
 }
