@@ -138,4 +138,16 @@ describe('db', () => {
     // другое место вставляется
     expect(upsertRaw(db, { ...g, sourceId: 'gp-2', phones: [], lat: 52 }, ctx)).toBe('new')
   })
+
+  it('upsertRaw: osmHours пишется и заполняет только пустое поле', () => {
+    const ctx = { country: 'BY', cityId: 1, cellId: null, categoryId: 'cafe', now: 5 }
+    const o = { source: 'osm' as const, sourceId: 'node/5', name: 'Кафе Х', lat: 50, lon: 30, phones: [], contacts: [] }
+    expect(upsertRaw(db, o, ctx)).toBe('new')
+    const id = (db.prepare('SELECT id FROM places').get() as { id: number }).id
+    expect(getPlace(db, id)!.osmHours).toBeNull()
+    expect(upsertRaw(db, { ...o, hours: 'Mo-Fr 09:00-18:00' }, ctx)).toBe('dup')
+    expect(getPlace(db, id)!.osmHours).toBe('Mo-Fr 09:00-18:00')
+    upsertRaw(db, { ...o, hours: '24/7' }, ctx)
+    expect(getPlace(db, id)!.osmHours).toBe('Mo-Fr 09:00-18:00')
+  })
 })

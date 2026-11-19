@@ -34,6 +34,8 @@ describe('overpass', () => {
     expect(p[0].sourceId).toBe('node/1')
     expect(p[0].phones).toHaveLength(2)
     expect(p[0].website).toBe('https://cafe1.by')
+    expect(p[0].hours).toBe('Mo-Fr 09:00-21:00')
+    expect(p[1].hours).toBeUndefined()
     expect(p[0].contacts).toContainEqual({ kind: 'instagram', value: 'cafe_one' })
     expect(p[0].contacts).toContainEqual({ kind: 'telegram', value: 'cafe1' })
     expect(p[0].contacts).toContainEqual({ kind: 'whatsapp', value: '+375291234567' })

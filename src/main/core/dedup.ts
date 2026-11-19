@@ -61,7 +61,7 @@ export function findDuplicate(
 
 const ALWAYS_NEW: (keyof Place)[] = ['rating', 'reviews', 'googleFetchedAt', 'googlePlaceId']
 const FILL_ONLY: (keyof Place)[] = [
-  'name', 'category', 'address', 'cellId', 'phoneE164', 'website', 'webClass', 'osmId'
+  'name', 'category', 'address', 'cellId', 'phoneE164', 'website', 'webClass', 'osmId', 'osmHours'
 ]
 
 export function mergePatch(old: Place, inc: Partial<Place>): Partial<Place> {

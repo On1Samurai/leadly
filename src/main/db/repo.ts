@@ -46,13 +46,13 @@ const COLS: Record<keyof Omit<Place, 'id'>, string> = {
   cellId: 'cell_id', phoneE164: 'phone_e164', phoneType: 'phone_type', website: 'website',
   webClass: 'web_class', rating: 'rating', reviews: 'reviews', googlePlaceId: 'google_place_id',
   osmId: 'osm_id', googleFetchedAt: 'google_fetched_at', status: 'status', inBase: 'in_base',
-  remindAt: 'remind_at', score: 'score', scoreReason: 'score_reason', createdAt: 'created_at', dealAmount: 'deal_amount'
+  remindAt: 'remind_at', score: 'score', scoreReason: 'score_reason', createdAt: 'created_at', dealAmount: 'deal_amount', osmHours: 'osm_hours'
 }
 
 const SELECT = `SELECT id, ${Object.entries(COLS).map(([k, c]) => (k === c ? c : `${c} AS ${k}`)).join(', ')} FROM places`
 
 function toSql(v: unknown): unknown {
-  return typeof v === 'boolean' ? (v ? 1 : 0) : v
+  return typeof v === 'boolean' ? (v ? 1 : 0) : v === undefined ? null : v
 }
 
 type Row = Omit<Place, 'inBase'> & { inBase: number }
