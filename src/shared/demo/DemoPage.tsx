@@ -83,13 +83,12 @@ export function DemoPage({ c, links }: { c: DemoContent; links: DemoLinks | null
             </section>
           )}
           <a className="btn" href={c.cta.target || undefined}>{ctaText}</a>
-          {c.showBadge && (
-            <div className="badge">
-              <a href={links?.want}>{L.badge} @{links ? links.tg : L.nick}</a>
-              <a className="btn alt" href={links?.want}>{L.want}</a>
-            </div>
-          )}
-          {links && <img src={links.pixel} width={1} height={1} alt="" loading="lazy" {...{ referrerpolicy: "unsafe-url" }} />}
+          <div className="badge">
+            {c.showBadge && <a href={links?.want}>{L.badge} @{links ? links.tg : L.nick}</a>}
+            <a className="btn alt" href={links?.want}>{L.want}</a>
+          </div>
+          {/* lowercase referrerpolicy: React 19 would emit camelCase; fetchPriority=low stops preload hoisting (double hit) */}
+          {links && <img src={links.pixel} width={1} height={1} alt="" fetchPriority="low" {...{ referrerpolicy: "unsafe-url" }} />}
         </div>
       </body>
     </html>

@@ -30,6 +30,7 @@ describe('renderDemoHtml', () => {
     const h = renderDemoHtml(content(), links)
     expect(h).not.toContain('preload')
     expect(h.split('w.example/o/s-1').length - 1).toBe(1)
+    expect(h.match(/<img[^>]*w\.example\/o\/s-1[^>]*>/)![0]).not.toContain('lazy')
   })
   it('escapes name', () => {
     const h = renderDemoHtml(content({ name: 'Кафе "Ромашка" <b>' }), links)
@@ -56,6 +57,11 @@ describe('renderDemoHtml', () => {
     expect(h).toContain('@my_nick')
     expect(h).toContain('href="https://w.example/w/s-1"')
     expect(renderDemoHtml(content({ showBadge: false }), links)).not.toContain('@my_nick')
+  })
+  it('want button stays without badge', () => {
+    const h = renderDemoHtml(content({ showBadge: false }), links)
+    expect(h).toContain(labels.ru.want)
+    expect(h).not.toContain('@my_nick')
   })
   it('preview', () => {
     const h = renderDemoHtml(content(), null)
