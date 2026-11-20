@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addItem, canPublish, movePhoto, removeItem, removePhoto, setItem, toggleReview } from '../src/shared/demo/edit'
+import { addItem, canPublish, ctaValid, movePhoto, removeItem, removePhoto, setItem, toggleReview } from '../src/shared/demo/edit'
 import type { DemoContent, DemoView, SetupState } from '../src/shared/demo/types'
 
 const content = (): DemoContent => ({
@@ -73,5 +73,19 @@ describe('canPublish', () => {
   it('ok; импорт без content тоже ok', () => {
     expect(canPublish(view(), ready, 'nick')).toEqual({ ok: true })
     expect(canPublish(view({ kind: 'import', content: null }), ready, 'nick')).toEqual({ ok: true })
+  })
+})
+
+describe('ctaValid', () => {
+  const withTarget = (target: string): DemoContent => ({ ...content(), cta: { kind: 'call', target } })
+  it('пусто, https:// и tel: — верно', () => {
+    expect(ctaValid(withTarget(''))).toBe(true)
+    expect(ctaValid(withTarget('https://maps.example/x'))).toBe(true)
+    expect(ctaValid(withTarget('tel:+79990000000'))).toBe(true)
+  })
+  it('http://, номер без tel: и прочее — неверно', () => {
+    expect(ctaValid(withTarget('http://x.ru'))).toBe(false)
+    expect(ctaValid(withTarget('+79990000000'))).toBe(false)
+    expect(ctaValid(withTarget('javascript:alert(1)'))).toBe(false)
   })
 })

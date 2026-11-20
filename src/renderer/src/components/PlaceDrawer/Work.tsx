@@ -65,7 +65,7 @@ export function Work({ d, country, onChanged }: Props): React.JSX.Element {
         </label>
       </section>
       {err && <p role="alert" className="text-danger">{err}</p>}
-      <DemoSection d={d} />
+      <DemoSection key={d.id} d={d} />
       <section>
         <h3 className="mb-1 font-semibold">История статусов</h3>
         {d.statusLog.length === 0 && <p className="text-muted">Пока без изменений.</p>}
@@ -95,10 +95,11 @@ function DemoSection({ d }: { d: PlaceDetails }): React.JSX.Element {
   const [note, setNote] = useState<string | null>(null)
 
   useEffect(() => {
-    setDemo(undefined); setErr(null); setNote(null); setMatch(null)
-    window.api.demo.get(d.id).then(setDemo).catch((e) => { setDemo(null); setErr(errText(e)) })
-    window.api.secrets.has().then((h) => setGoogle(h.google)).catch(() => undefined)
-    window.api.demo.budget().then(setBudget).catch(() => undefined)
+    let live = true // ответ для прежнего места не попадёт в новое
+    window.api.demo.get(d.id).then((x) => { if (live) setDemo(x) }).catch((e) => { if (live) { setDemo(null); setErr(errText(e)) } })
+    window.api.secrets.has().then((h) => { if (live) setGoogle(h.google) }).catch(() => undefined)
+    window.api.demo.budget().then((b) => { if (live) setBudget(b) }).catch(() => undefined)
+    return () => { live = false }
   }, [d.id])
 
   const run = async (f: () => Promise<void>): Promise<void> => {

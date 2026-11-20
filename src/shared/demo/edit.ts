@@ -23,6 +23,9 @@ export function movePhoto(c: DemoContent, from: number, to: number): DemoContent
 
 export const removePhoto = (c: DemoContent, i: number): DemoContent => ({ ...c, photos: c.photos.filter((_, j) => j !== i) })
 
+/** Ссылка кнопки действия по схеме IPC (пусто, https:// или tel:); иначе save и preview вернут bad_args. */
+export const ctaValid = (c: DemoContent): boolean => /^(?:$|https:\/\/|tel:)/.test(c.cta.target)
+
 export function canPublish(v: DemoView, s: SetupState, tg: string): { ok: true } | { ok: false; why: string } {
   if (!s.github.ok || !s.worker.ok) return { ok: false, why: 'Настройте GitHub и Worker в настройках' }
   if (!tg.trim()) return { ok: false, why: 'Укажите ник Telegram' }

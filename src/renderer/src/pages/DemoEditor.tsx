@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DemoContent, DemoCta, DemoView, SetupState } from '../../../shared/demo/types'
-import { addItem, canPublish, movePhoto, removeItem, removePhoto, setItem, toggleReview } from '../../../shared/demo/edit'
+import { addItem, canPublish, ctaValid, movePhoto, removeItem, removePhoto, setItem, toggleReview } from '../../../shared/demo/edit'
 import { Button } from '../components/Button'
 import { Field, TextInput, inputCls } from '../components/Field'
 import { DEMO_STATUS_LABEL, POSTCARD_HINT } from '../labels'
@@ -11,8 +11,6 @@ const CTA: [DemoCta['kind'], string, string][] = [
   ['call', 'Позвонить', 'tel:+7…'], ['route', 'Как добраться', 'https://… — ссылка на карту'], ['book', 'Записаться', 'https://… или tel:…']
 ]
 const areaCls = `${inputCls} min-h-20 resize-y`
-/** Та же проверка ссылки, что в схеме IPC: иначе сохранение и превью вернут bad_args. */
-const ctaOk = (c: DemoContent): boolean => /^(?:$|https:\/\/|tel:)/.test(c.cta.target)
 
 /** Полноэкранный редактор демо: форма слева, превью в рамке телефона справа. */
 export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element {
@@ -23,7 +21,8 @@ export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element 
   const [tg, setTg] = useState('')
   const [html, setHtml] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
-  const [saved, setSaved] = useState(true)
+  const [save, setSave] = useState<'idle' | 'pending' | 'saved'>('idle')
+  const [saveErr, setSaveErr] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const pending = useRef<DemoContent | null>(null)
@@ -36,21 +35,29 @@ export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element 
     window.api.settings.get().then((s) => setTg(s.demoTg)).catch(() => undefined)
   }, [placeId])
 
-  /** Отправляет отложенное сохранение сразу (перед публикацией, ИИ, уходом с экрана). */
-  const flush = useCallback(async (): Promise<void> => {
+  /** Отправляет отложенное сохранение сразу («Сохранить», перед действиями, уход с экрана). false — не сохранилось. */
+  const flush = useCallback(async (): Promise<boolean> => {
     window.clearTimeout(saveTimer.current)
     const next = pending.current
-    if (!next) return
+    if (!next) return true
     pending.current = null
-    await window.api.demo.save(placeId, next)
-    setSaved(true)
+    try {
+      await window.api.demo.save(placeId, next)
+    } catch (e) {
+      pending.current ??= next // повторит «Сохранить» или следующая правка
+      setSaveErr(errText(e))
+      return false
+    }
+    setSaveErr(null)
+    if (pending.current === null) setSave('saved') // пока ждали, могла прийти новая правка
+    return true
   }, [placeId])
   // уход со страницы размонтирует редактор: черновик не теряется
-  useEffect(() => () => { void flush().catch(() => undefined) }, [flush])
+  useEffect(() => () => { void flush() }, [flush])
 
   // превью: тот же DemoPage, что и на сайте; 300 мс после последней правки
   useEffect(() => {
-    if (!c || !ctaOk(c)) return
+    if (!c || !ctaValid(c)) return
     const r = ++previewReq.current
     const t = window.setTimeout(() => {
       window.api.demo.preview(placeId, c).then((h) => { if (r === previewReq.current) setHtml(h) }).catch((e) => setErr(errText(e)))
@@ -59,17 +66,18 @@ export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element 
   }, [c, placeId])
 
   const edit = (next: DemoContent): void => {
-    setC(next); setSaved(false)
-    if (!ctaOk(next)) return // поле подсветит ошибку; сохраним, когда ссылка станет верной
+    setC(next)
+    if (!ctaValid(next)) return // поле подсветит ошибку; сохраним, когда ссылка станет верной
+    setSave('pending')
     pending.current = next
     window.clearTimeout(saveTimer.current)
-    saveTimer.current = window.setTimeout(() => { flush().catch((e) => setErr(errText(e))) }, 1000)
+    saveTimer.current = window.setTimeout(() => { void flush() }, 1000)
   }
   const set = <K extends keyof DemoContent>(k: K, val: DemoContent[K]): void => { if (c) edit({ ...c, [k]: val }) }
 
   const act = async (label: string, f: () => Promise<void>): Promise<void> => {
     setBusy(label); setErr(null); setNote(null)
-    try { await flush(); await f() } catch (e) {
+    try { if (await flush()) await f() } catch (e) {
       if (!String((e as Error)?.message ?? e).includes('cancelled')) setErr(errText(e))
     } finally { setBusy(null) }
   }
@@ -81,25 +89,29 @@ export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element 
   const can = setup ? canPublish(v, setup, tg) : { ok: false as const, why: 'Проверяем настройку…' }
   const published = v.status === 'published'
   const status = busy === 'publish' ? 'Публикуется…' : DEMO_STATUS_LABEL[v.status]
+  // неверная ссылка: черновик не сохраняется, действия с содержимым взяли бы прежнюю версию
+  const linkBad = v.kind === 'template' && c !== null && !ctaValid(c)
+  const saveLabel = linkBad || saveErr ? 'Не сохранено' : save === 'pending' ? 'Сохраняем…' : save === 'saved' ? 'Сохранено' : ''
 
   return (
     <main className="flex flex-col gap-4 px-8 py-6">
       <header className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" onClick={() => navigate('demos')}>← Все демо</Button>
         <h1 className="min-w-0 flex-1 truncate text-2xl font-bold">{c?.name ?? 'Демо'}</h1>
-        <span className="font-mono text-xs text-muted" role="status">{status}{c && !saved ? ' · сохраняем…' : ''}</span>
+        <span className="font-mono text-xs text-muted" role="status">{status}{saveLabel ? ` · ${saveLabel}` : ''}</span>
       </header>
 
       <div className="flex flex-wrap items-center gap-2">
-        {v.kind === 'template' && <Button variant="ghost" disabled={!!busy} onClick={() => act('rewrite', async () => { const x = await window.api.demo.rewrite(placeId); setC(x) })}>
+        {v.kind === 'template' && <Button variant="ghost" disabled={!!busy || linkBad} onClick={() => void flush()}>Сохранить</Button>}
+        {v.kind === 'template' && <Button variant="ghost" disabled={!!busy || linkBad} onClick={() => act('rewrite', async () => { const x = await window.api.demo.rewrite(placeId); setC(x) })}>
           {busy === 'rewrite' ? 'Переписываем…' : 'Переписать текст ИИ'}
         </Button>}
-        <Button disabled={!!busy || !can.ok} onClick={() => act('publish', async () => view(await window.api.demo.publish(placeId)))}>
+        <Button disabled={!!busy || !can.ok || linkBad} onClick={() => act('publish', async () => view(await window.api.demo.publish(placeId)))}>
           {busy === 'publish' ? 'Публикуется…' : 'Опубликовать'}
         </Button>
         {published && <>
           <Button variant="ghost" disabled={!!busy} onClick={() => act('open', () => window.api.demo.openLive(placeId))}>Открыть</Button>
-          <Button variant="ghost" disabled={!!busy} onClick={() => act('postcard', async () => {
+          <Button variant="ghost" disabled={!!busy || linkBad} onClick={() => act('postcard', async () => {
             const p = await window.api.demo.postcard([placeId])
             if (p) setNote(`Сохранено: ${p}`)
           })}>Открытка</Button>
@@ -113,6 +125,8 @@ export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element 
           {can.why}. <button type="button" className="cursor-pointer underline hover:text-fg" onClick={() => navigate('settings')}>Открыть настройки</button>
         </p>
       )}
+      {linkBad && <p className="text-sm text-muted">Исправьте ссылку кнопки действия</p>}
+      {saveErr && <p role="alert" className="text-sm text-danger">Черновик не сохранён: {saveErr}</p>}
       {published && v.url && <p className="break-all font-mono text-xs text-muted">{v.url}</p>}
       {published && <p className="text-xs text-muted">{POSTCARD_HINT}</p>}
       {note && <p role="status" className="break-all text-sm text-muted">{note}</p>}
@@ -122,14 +136,14 @@ export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element 
         <div className="flex min-w-80 flex-1 flex-col gap-4">
           {v.kind === 'import'
             ? <ImportPanel v={v} busy={!!busy} onBadge={(on) => act('badge', async () => setV(await window.api.demo.setImportBadge(placeId, on)))} />
-            : c && <Form c={c} edit={edit} set={set} busy={!!busy}
+            : c && <Form c={c} edit={edit} set={set} busy={!!busy || linkBad} locked={busy === 'publish' || busy === 'rewrite'}
               onPhotoAdd={() => act('photo', async () => { const x = await window.api.demo.photoAdd(placeId); setC(x) })} />}
           <section aria-label="Импорт своего сайта" className="flex flex-col gap-2 rounded-card border border-line bg-surface p-4 text-sm">
             <h2 className="font-semibold">Импортировать свой сайт</h2>
             <p className="text-xs text-muted">Заменит шаблон вашим сайтом: папка с index.html, ZIP-архив или один HTML-файл.</p>
             <div className="flex flex-wrap gap-2">
               {([['folder', 'Папка'], ['zip', 'ZIP'], ['html', 'HTML']] as const).map(([k, l]) => (
-                <Button key={k} variant="ghost" disabled={!!busy} onClick={() => act('import', async () => {
+                <Button key={k} variant="ghost" disabled={!!busy || linkBad} onClick={() => act('import', async () => {
                   const x = await window.api.demo.importSite(placeId, k)
                   setV(x); setC(x.content)
                 })}>{l}</Button>
@@ -162,19 +176,21 @@ function ImportPanel({ v, busy, onBadge }: { v: DemoView; busy: boolean; onBadge
 
 interface FormProps {
   c: DemoContent; busy: boolean
+  /** публикация или ИИ: ответ ИИ не должен затереть то, что сейчас печатают */
+  locked: boolean
   edit: (c: DemoContent) => void
   set: <K extends keyof DemoContent>(k: K, v: DemoContent[K]) => void
   onPhotoAdd: () => void
 }
 
-function Form({ c, busy, edit, set, onPhotoAdd }: FormProps): React.JSX.Element {
+function Form({ c, busy, locked, edit, set, onPhotoAdd }: FormProps): React.JSX.Element {
   const box = 'flex flex-col gap-3 rounded-card border border-line bg-surface p-4 text-sm'
   const cta = CTA.find(([k]) => k === c.cta.kind) ?? CTA[0]
-  const okLink = ctaOk(c)
+  const okLink = ctaValid(c)
   // смена вида — цель по умолчанию из данных места, как при сборке
   const kindTarget = (k: DemoCta['kind']): string => (k === 'route' ? c.mapsUrl ?? '' : c.phone ? `tel:${c.phone}` : '')
   return (
-    <>
+    <fieldset disabled={locked} className="flex flex-col gap-4 disabled:opacity-60">
       <section aria-label="Тексты" className={box}>
         <Field label="Заголовок"><TextInput maxLength={200} value={c.headline} onChange={(e) => set('headline', e.target.value)} /></Field>
         <Field label="Подзаголовок"><TextInput maxLength={400} value={c.subhead} onChange={(e) => set('subhead', e.target.value)} /></Field>
@@ -247,6 +263,6 @@ function Form({ c, busy, edit, set, onPhotoAdd }: FormProps): React.JSX.Element 
           <input type="checkbox" checked={c.showBadge} onChange={(e) => set('showBadge', e.target.checked)} /> Сайт сделал @ник
         </label>
       </section>
-    </>
+    </fieldset>
   )
 }
