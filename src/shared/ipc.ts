@@ -37,6 +37,7 @@ export interface PlaceDetails extends Omit<Place, 'score'> {
   statusLog: { from: Status | null; to: Status; at: number }[]
   score: Score
   channels: Channel[]
+  modelTrainedOn: number | null
 }
 export interface TodayView { goal: number; written: number; remindToday: PlaceView[]; replied: PlaceView[]; wanted: PlaceView[]; leftToday: number }
 

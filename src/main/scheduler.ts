@@ -10,7 +10,7 @@ import { atLocal, nextHour, startOfDay } from './time'
 
 export { atLocal, nextHour, startOfDay }
 
-export type JobKind = 'reminder' | 'digest' | 'backup' | 'noreply' | 'demo_events'
+export type JobKind = 'reminder' | 'digest' | 'backup' | 'noreply' | 'demo_events' | 'rescore'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Handlers = Record<JobKind, (payload: any, now: number) => Promise<void>>
 export interface DailyCfg { digestTime: string; latestCatchUp: string }
@@ -64,6 +64,7 @@ export class Scheduler {
     if (!this.hasPending('digest')) this.add('digest', nextDaily(now, s.digestTime, this.doneToday('digest', now), s.latestCatchUp))
     if (!this.hasPending('backup')) this.add('backup', Math.max(nextDaily(now, BACKUP_TIME, this.doneToday('backup', now)), this.backupCooldownEnd()))
     if (!this.hasPending('noreply')) this.add('noreply', nextHour(now))
+    if (!this.hasPending('rescore')) this.add('rescore', nextHour(now))
     if (!this.hasPending('demo_events') && getSetting(this.db, 'demo:worker', null)) this.add('demo_events', now)
   }
 
@@ -139,6 +140,7 @@ export interface HandlerDeps {
   backup: (now: number) => Promise<unknown>
   noreply: (now: number) => Promise<void> | void
   demoEvents: (now: number) => Promise<void>
+  rescore: (now: number) => Promise<void> | void
 }
 
 export function makeHandlers(db: Db, d: HandlerDeps): Handlers {
@@ -151,6 +153,7 @@ export function makeHandlers(db: Db, d: HandlerDeps): Handlers {
     },
     backup: async (_p, now) => { await d.backup(now) },
     noreply: async (_p, now) => { await d.noreply(now) },
+    rescore: async (_p, now) => { await d.rescore(now) },
     demo_events: async (_p, now) => {
       if (!getSetting(db, 'demo:worker', null)) return
       await d.demoEvents(now)

@@ -18,6 +18,7 @@ import { getSetting } from './db/repo'
 import type { WorkerConfig } from './demo/cloudflare'
 import { syncDemoEvents } from './demo/events'
 import { WorkerApi } from './demo/worker-api'
+import { rescoreAll } from './core/logreg'
 import { makeHandlers, noreplyRescore, Scheduler } from './scheduler'
 import { loadSettings } from './settings'
 import { createUpdater } from './updater'
@@ -165,6 +166,7 @@ app.whenReady().then(() => {
     notify: notifier,
     backup: (now) => backupNow(conn, join(userDataDir, 'backups'), now),
     noreply: (now) => noreplyRescore(conn, PRIORS, now),
+    rescore: (now) => rescoreAll(conn, PRIORS, now),
     demoEvents: async (now) => {
       const cfg = getSetting<WorkerConfig | null>(conn, 'demo:worker', null)
       const secret = getWorkerSecret(conn, secretEnv)

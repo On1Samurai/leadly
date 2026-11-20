@@ -19,8 +19,8 @@ const GROUPS: Record<WeightKey, 'need' | 'reach'> = {
   phone_mobile: 'reach', phone_fixed: 'reach', reviews_lt10: 'reach', reviews_gt100: 'reach'
 }
 
-const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x))
-const logit = (p: number): number => {
+export const sigmoid = (x: number): number => 1 / (1 + Math.exp(-x))
+export const logit = (p: number): number => {
   const c = Math.min(1 - 1e-6, Math.max(1e-6, p))
   return Math.log(c / (1 - c))
 }
@@ -30,7 +30,7 @@ export function posteriorMean(prior: Prior, replied: number, noReply: number): n
   return a / (a + prior.beta + noReply)
 }
 
-function applicable(f: Features): WeightKey[] {
+export function applicable(f: Features): WeightKey[] {
   const keys: WeightKey[] = []
   if (f.webClass === 'none') keys.push('web_none')
   else if (f.webClass === 'social') keys.push('web_social')

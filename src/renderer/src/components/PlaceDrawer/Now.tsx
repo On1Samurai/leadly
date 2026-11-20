@@ -68,6 +68,7 @@ export function Now({ d, tone, onTone, onWritten }: Props): React.JSX.Element {
       <div>
         <p className="font-mono text-2xl">{percentLabel(d.score.p * 100)}</p>
         <p className="text-sm text-muted">{d.score.reason || 'нет явных причин'}</p>
+        {typeof d.modelTrainedOn === 'number' && <p className="text-xs text-muted">Оценка обучена на {d.modelTrainedOn} ваших ответах</p>}
       </div>
       <div role="group" aria-label="Тон" className="flex overflow-hidden rounded-lg border border-line text-sm">
         {TONES.map(([t, l]) => (

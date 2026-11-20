@@ -21,7 +21,8 @@ const fake = (over: Partial<Handlers> = {}): Handlers => ({
   digest: async () => { calls.push('digest') },
   backup: async () => { calls.push('backup') },
   noreply: async () => { calls.push('noreply') },
-  demo_events: async () => { calls.push('demo_events') }, ...over
+  demo_events: async () => { calls.push('demo_events') },
+  rescore: async () => { calls.push('rescore') }, ...over
 })
 beforeEach(() => { calls.length = 0 })
 const pending = (kind: string): { run_at: number }[] => db.prepare('SELECT run_at FROM jobs WHERE kind=? AND done=0').all(kind) as never
@@ -99,7 +100,7 @@ describe('Scheduler', () => {
   it('ensureDaily is idempotent; backup not repeated same day', async () => {
     const s = new Scheduler(db, fake(), () => at(10, 15), () => S)
     s.ensureDaily(at(10, 15), S); s.ensureDaily(at(10, 15), S)
-    expect((db.prepare('SELECT COUNT(*) n FROM jobs').get() as { n: number }).n).toBe(3)
+    expect((db.prepare('SELECT COUNT(*) n FROM jobs').get() as { n: number }).n).toBe(4)
     await s.tick(); await s.tick()
     expect(calls.filter((c) => c === 'backup')).toHaveLength(1)
     expect(pending('backup')[0].run_at).toBe(at(4, 0, 16))
@@ -119,7 +120,7 @@ describe('demo_events job', () => {
     let n = 0
     const h = makeHandlers(db, {
       notify: { digest: async () => undefined, reminder: async () => undefined },
-      backup: async () => undefined, noreply: async () => undefined, demoEvents: async () => { n++ }
+      backup: async () => undefined, noreply: async () => undefined, rescore: async () => undefined, demoEvents: async () => { n++ }
     })
     await h.demo_events({}, at(8))
     expect(n).toBe(0); expect(pending('demo_events')).toEqual([])
@@ -134,7 +135,7 @@ describe('reminder handler', () => {
   const sent: string[] = []
   const mk = (): Handlers => makeHandlers(db, {
     notify: { digest: async () => { sent.push('digest') }, reminder: async (p) => { sent.push(p.name) } },
-    backup: async () => undefined, noreply: async () => undefined, demoEvents: async () => undefined
+    backup: async () => undefined, noreply: async () => undefined, rescore: async () => undefined, demoEvents: async () => undefined
   })
   beforeEach(() => { sent.length = 0 })
   it('notifies for a place in later', async () => {

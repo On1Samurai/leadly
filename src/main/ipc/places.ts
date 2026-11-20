@@ -20,6 +20,7 @@ import { GoogleClient, Budget } from '../sources/google'
 import { getSecret } from '../secrets'
 import { loadSettings } from '../settings'
 import { PRIORS } from './data'
+import { modelWeights } from '../core/logreg'
 import { define, type IpcDeps, type Table } from './define'
 import type { DemoService } from '../demo/service'
 
@@ -84,7 +85,7 @@ function nextCandidates(db: Db, cityId: number | undefined, now: number, s: AppS
 
 /** Пересчёт процента категории в городе места (история ответов могла измениться). */
 export function rescorePlace(db: Db, p: Place, now: number): void {
-  rescore(db, PRIORS, { categoryId: p.category, cityId: p.cityId }, now)
+  rescore(db, PRIORS, { categoryId: p.category, cityId: p.cityId }, now, modelWeights(db, PRIORS).weights)
 }
 
 function need(db: Db, id: number): Place {
@@ -130,13 +131,14 @@ export function placesHandlers(t: Table, d: IpcDeps, demo: Pick<DemoService, 're
     const statusLog = (db.prepare('SELECT from_status AS "from", to_status AS "to", at FROM status_log WHERE place_id=? ORDER BY at, rowid')
       .all(id) as PlaceDetails['statusLog'])
     const prior = PRIORS.categories[p.category] ?? PRIORS.default
+    const model = modelWeights(db, PRIORS)
     const score = scorePlace(
       { webClass: p.webClass, phoneType: p.phoneType, reviews: p.reviews, rating: p.rating },
-      prior, historyFor(db, { categoryId: p.category, cityId: p.cityId }, d.now()), PRIORS.weights, PRIORS.default
+      prior, historyFor(db, { categoryId: p.category, cityId: p.cityId }, d.now()), model.weights, PRIORS.default
     )
     const channels: Channel[] = channelsFor(s.country, contacts, p.phoneE164, p.phoneType)
     const { score: _stored, ...rest } = p
-    return { ...rest, contacts, findings: latestFindings(db, id), messages, statusLog, score, channels }
+    return { ...rest, contacts, findings: latestFindings(db, id), messages, statusLog, score, channels, modelTrainedOn: model.trainedOn }
   })
 
   define(t, 'places.toBase', (_e, id, v) => { need(db, id); updatePlace(db, id, { inBase: v }) })

@@ -3,14 +3,14 @@ import { loadSettings } from '../settings'
 import { isNoReply, scorePlace, type History, type Priors } from '../core/scoring'
 import type { PhoneType, Status, WebClass } from '../../shared/types'
 
-const REPLIED_NOW: Status[] = ['replied', 'demo_opened', 'call', 'deal']
+export const REPLIED_NOW: Status[] = ['replied', 'demo_opened', 'call', 'deal']
 
-interface Row {
+export interface Row {
   id: number; status: Status; webClass: WebClass; phoneType: PhoneType; reviews: number | null; rating: number | null
   wasReplied: number; writtenAt: number | null
 }
 
-function loadRows(db: Db, scope: { categoryId: string; cityId: number }): Row[] {
+export function loadRows(db: Db, scope: { categoryId: string; cityId: number }): Row[] {
   return db.prepare(
     `SELECT p.id, p.status, p.web_class AS webClass, p.phone_type AS phoneType, p.reviews, p.rating,
        EXISTS(SELECT 1 FROM status_log l WHERE l.place_id=p.id AND l.to_status='replied') AS wasReplied,
@@ -19,7 +19,7 @@ function loadRows(db: Db, scope: { categoryId: string; cityId: number }): Row[] 
   ).all(scope.categoryId, scope.cityId) as Row[]
 }
 
-function historyOf(db: Db, rows: Row[], cityId: number, now: number): History {
+export function historyOf(db: Db, rows: Row[], cityId: number, now: number): History {
   const days = loadSettings(db).noReplyDays
   let replied = 0
   let noReply = 0
@@ -37,8 +37,8 @@ export function historyFor(db: Db, scope: { categoryId: string; cityId: number }
   return historyOf(db, loadRows(db, scope), scope.cityId, now)
 }
 
-/** Пересчёт score/score_reason всех мест категории в городе по истории ответов. */
-export function rescore(db: Db, priors: Priors, scope: { categoryId: string; cityId: number }, now: number): void {
+/** Пересчёт score/score_reason (weights — веса модели, иначе априорные) всех мест категории в городе по истории ответов. */
+export function rescore(db: Db, priors: Priors, scope: { categoryId: string; cityId: number }, now: number, weights: Priors['weights'] = priors.weights): void {
   const rows = loadRows(db, scope)
   const hist = historyOf(db, rows, scope.cityId, now)
   const prior = priors.categories[scope.categoryId] ?? priors.default
@@ -47,7 +47,7 @@ export function rescore(db: Db, priors: Priors, scope: { categoryId: string; cit
     for (const r of rows) {
       const s = scorePlace(
         { webClass: r.webClass, phoneType: r.phoneType, reviews: r.reviews, rating: r.rating },
-        prior, hist, priors.weights, priors.default
+        prior, hist, weights, priors.default
       )
       upd.run(Math.round(s.p * 1000) / 10, s.reason, r.id)
     }
