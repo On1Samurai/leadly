@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
+import type { DemoView } from '../../../../shared/demo/types'
 import type { PlaceDetails } from '../../../../shared/ipc'
 import { parseDateInput, remindAt, type RemindPreset } from '../../../../shared/remind'
 import { errText } from '../../lib'
-import { STATUS_LABEL, STATUS_ORDER } from '../../labels'
+import { DEMO_STATUS_LABEL, POSTCARD_HINT, STATUS_LABEL, STATUS_ORDER } from '../../labels'
+import { useNav } from '../../nav'
 import type { Status } from '../../../../shared/types'
 import { Button } from '../Button'
+import { Modal } from '../Modal'
 
 const CUR: Record<string, string> = { RU: '₽', BY: 'BYN', UA: '₴' }
 const fmt = (ts: number): string => new Date(ts).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })
@@ -62,6 +65,7 @@ export function Work({ d, country, onChanged }: Props): React.JSX.Element {
         </label>
       </section>
       {err && <p role="alert" className="text-danger">{err}</p>}
+      <DemoSection d={d} />
       <section>
         <h3 className="mb-1 font-semibold">История статусов</h3>
         {d.statusLog.length === 0 && <p className="text-muted">Пока без изменений.</p>}
@@ -73,5 +77,90 @@ export function Work({ d, country, onChanged }: Props): React.JSX.Element {
         ))}</ul>
       </section>
     </div>
+  )
+}
+
+type Match = NonNullable<Awaited<ReturnType<typeof window.api.demo.match>>>
+type Budget = Awaited<ReturnType<typeof window.api.demo.budget>>
+
+/** Демо-сайт места: сборка (с подтверждением совпадения в Google) или статус, счётчики и действия. */
+function DemoSection({ d }: { d: PlaceDetails }): React.JSX.Element {
+  const { navigate } = useNav()
+  const [demo, setDemo] = useState<DemoView | null | undefined>(undefined)
+  const [google, setGoogle] = useState(false)
+  const [budget, setBudget] = useState<Budget | null>(null)
+  const [match, setMatch] = useState<Match | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
+
+  useEffect(() => {
+    setDemo(undefined); setErr(null); setNote(null); setMatch(null)
+    window.api.demo.get(d.id).then(setDemo).catch((e) => { setDemo(null); setErr(errText(e)) })
+    window.api.secrets.has().then((h) => setGoogle(h.google)).catch(() => undefined)
+    window.api.demo.budget().then(setBudget).catch(() => undefined)
+  }, [d.id])
+
+  const run = async (f: () => Promise<void>): Promise<void> => {
+    setBusy(true); setErr(null); setNote(null)
+    try { await f() } catch (e) { setErr(errText(e)) } finally { setBusy(false) }
+  }
+  const doBuild = async (o: { source: 'auto' | 'free'; googleId?: string }): Promise<void> => {
+    await window.api.demo.build(d.id, o)
+    navigate('demoEditor', { placeId: d.id })
+  }
+  const build = (o: { source: 'auto' | 'free'; googleId?: string }): void => { setMatch(null); void run(() => doBuild(o)) }
+  // лимит Google исчерпан — собираем из бесплатных данных, а не падаем на demo_google_limit
+  const paid = google && budget !== null && budget.left >= budget.need
+  const start = (): void => {
+    if (!paid) return build({ source: 'free' })
+    if (d.googlePlaceId) return build({ source: 'auto' })
+    void run(async () => {
+      const m = await window.api.demo.match(d.id) // платный Text Search: 1 запрос из лимита
+      setBudget(await window.api.demo.budget())
+      if (m) setMatch(m)
+      else await doBuild({ source: 'free' }) // в Google не нашлось
+    })
+  }
+  const postcard = (): Promise<void> => run(async () => {
+    const p = await window.api.demo.postcard([d.id])
+    if (p) setNote(`Сохранено: ${p}`)
+  })
+
+  return (
+    <section aria-label="Демо-сайт" className="flex flex-col gap-2">
+      <h3 className="font-semibold">Демо-сайт</h3>
+      {demo === undefined && <p className="text-muted">Загрузка…</p>}
+      {demo === null && <>
+        <Button className="self-start" disabled={busy} onClick={start}>{busy ? 'Собираем…' : 'Собрать демо'}</Button>
+        {google && budget && (paid
+          ? <p className="text-xs text-muted">≈ ${budget.costUsd.toFixed(2)} из Google, осталось сегодня {budget.left}</p>
+          : <p className="text-xs text-muted">Лимит Google на сегодня исчерпан — демо соберётся без Google</p>)}
+      </>}
+      {demo && <>
+        <p>{DEMO_STATUS_LABEL[demo.status]}{demo.status === 'error' && demo.error ? ` — ${errText(demo.error)}` : ''}</p>
+        <p className="font-mono text-xs text-muted">открыли {demo.counts.open} · по QR {demo.counts.qr} · «Хочу так» {demo.counts.want}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" onClick={() => navigate('demoEditor', { placeId: d.id })}>Редактор</Button>
+          {demo.status === 'published' && <>
+            <Button variant="ghost" disabled={busy} onClick={() => run(() => window.api.demo.openLive(d.id))}>Открыть</Button>
+            <Button variant="ghost" disabled={busy} onClick={postcard}>Открытка</Button>
+          </>}
+        </div>
+        {demo.status === 'published' && <p className="text-xs text-muted">{POSTCARD_HINT}</p>}
+      </>}
+      {note && <p role="status" className="break-all text-muted">{note}</p>}
+      {err && <p role="alert" className="text-danger">{err}</p>}
+      {match && (
+        <Modal title="Это то заведение?" onClose={() => setMatch(null)}>
+          <p className="text-sm">{match.name}{match.address ? `, ${match.address}` : ''}, {match.distanceM} м</p>
+          {budget && <p className="text-xs text-muted">≈ ${budget.costUsd.toFixed(2)} из Google, осталось сегодня {budget.left}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => build({ source: 'auto', googleId: match.googleId })}>Да</Button>
+            <Button variant="ghost" onClick={() => build({ source: 'free' })}>Нет, без Google</Button>
+          </div>
+        </Modal>
+      )}
+    </section>
   )
 }

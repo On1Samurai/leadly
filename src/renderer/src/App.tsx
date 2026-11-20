@@ -7,6 +7,8 @@ import { NavContext, type NavParams, type Page } from './nav'
 import { errText } from './lib'
 import { Activation } from './pages/Activation'
 import { Base } from './pages/Base'
+import { DemoEditor } from './pages/DemoEditor'
+import { Demos } from './pages/Demos'
 import { Help } from './pages/Help'
 import { Onboarding } from './pages/Onboarding'
 import { Search } from './pages/Search'
@@ -47,6 +49,8 @@ function App(): React.JSX.Element {
             {page === 'search' && <Search />}
             {page === 'base' && <Base key={params.cityId ?? 'all'} />}
             {page === 'today' && <Today />}
+            {page === 'demos' && <Demos />}
+            {page === 'demoEditor' && params.placeId !== undefined && <DemoEditor key={params.placeId} placeId={params.placeId} />}
             {page === 'settings' && <Settings />}
             {page === 'help' && <Help />}
           </div>

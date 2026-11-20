@@ -4,6 +4,7 @@ import { updateErrorText } from '../../../shared/update'
 import type { AppSettings, NumKey, Tone } from '../../../shared/settings'
 import { DEFAULT_SETTINGS, NUM_LIMITS, parseNumDraft } from '../../../shared/settings'
 import { Button } from '../components/Button'
+import { DemoSetup } from '../components/DemoSetup'
 import { LicenseForm } from '../components/LicenseForm'
 import { useUpdate } from '../useUpdate'
 import { Field, SecretField, TextInput, inputCls } from '../components/Field'
@@ -194,6 +195,13 @@ export function Settings(): React.JSX.Element {
       <UpdateSection />
 
       <BotSection onError={setErr} tokenSaved={has.telegram} />
+
+      <Section title="Демо-сайты">
+        <TextSetting label="Ник Telegram" hint="Кнопка «Хочу так» на демо ведёт в этот Telegram. Без @: латиница, цифры, _" value={s.demoTg}
+          onCommit={(raw) => { const v = raw.replace(/^@/, ''); return window.api.settings.set({ demoTg: v }).then(() => { setS((o) => ({ ...o, demoTg: v })); setErr(null) }) }} onError={setErr} />
+        <DemoSetup hasGithub={has.github} hasCloudflare={has.cloudflare} saveKey={saveKey} />
+        {num('demoGoogleDaily', 'Лимит запросов Google для демо в день', 'Сборка демо с Google тратит до 5 запросов: поиск заведения, данные и фото')}
+      </Section>
 
       <Section title="Нейросеть для текстов">
         <Field label="Сервис">

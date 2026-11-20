@@ -5,6 +5,7 @@ import { percentLabel } from '../../../../shared/percent'
 import { errText } from '../../lib'
 import { WEB_LABEL } from '../../labels'
 import { Button } from '../Button'
+import { Modal, useEsc } from '../Modal'
 
 const GROUPS: [Factor['group'], string][] = [['need', 'Нужда'], ['reach', 'Досягаемость'], ['response', 'Отклик']]
 const signed = (n: number): string => (n > 0 ? `+${n}%` : n < 0 ? `−${Math.abs(n)}%` : '0%')
@@ -24,6 +25,7 @@ export function Venue({ d, onChanged, onRemoved }: Props): React.JSX.Element {
   const [confirmDel, setConfirmDel] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [hasDemo, setHasDemo] = useState(false)
   const timers = useRef<number[]>([])
 
   useEffect(() => {
@@ -33,6 +35,9 @@ export function Venue({ d, onChanged, onRemoved }: Props): React.JSX.Element {
     return () => { live = false }
   }, [d.id, d.findings])
   useEffect(() => () => { timers.current.forEach(clearTimeout) }, [])
+  useEffect(() => {
+    if (confirmDel) window.api.demo.get(d.id).then((v) => setHasDemo(v !== null)).catch(() => setHasDemo(false))
+  }, [confirmDel, d.id])
 
   const run = (fn: () => Promise<void>, ok?: string): void => {
     setMsg(null)
@@ -107,6 +112,7 @@ export function Venue({ d, onChanged, onRemoved }: Props): React.JSX.Element {
         <Modal onClose={() => setConfirmDel(false)} title="Удалить навсегда?">
           <p className="text-sm text-muted">Заведение «{d.name}» исчезнет из базы вместе со всеми данными: контактами, перепиской, заметками, аудитами и скриншотами — и больше не появится в поиске. Это нельзя отменить.</p>
           <p className="text-sm text-muted">Данные удалены из программы. Копии в резервных копиях исчезнут в течение 7 дней.</p>
+          {hasDemo && <p className="text-sm text-muted">Демо будет снято с публикации. В истории репозитория GitHub копия останется — чтобы стереть её, пересоздайте репозиторий (Help)</p>}
           <div className="flex gap-2">
             <Button className="!bg-danger" onClick={remove}>Удалить</Button>
             <Button variant="ghost" onClick={() => setConfirmDel(false)}>Отмена</Button>
@@ -117,31 +123,11 @@ export function Venue({ d, onChanged, onRemoved }: Props): React.JSX.Element {
   )
 }
 
-function useEsc(onClose: () => void): void {
-  useEffect(() => {
-    const h = (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose() } }
-    window.addEventListener('keydown', h, true)
-    return () => window.removeEventListener('keydown', h, true)
-  }, [onClose])
-}
-
 function ShotOverlay({ src, onClose }: { src: string; onClose: () => void }): React.JSX.Element {
   useEsc(onClose)
   return (
     <div data-overlay className="fixed inset-0 z-[60] flex items-center justify-center overflow-auto bg-black/90 p-6" onClick={onClose}>
       <img src={src} alt="Скриншот сайта" className="max-h-full max-w-full" />
-    </div>
-  )
-}
-
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }): React.JSX.Element {
-  useEsc(onClose)
-  return (
-    <div data-overlay className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-6">
-      <div role="dialog" aria-modal="true" aria-label={title} className="flex w-full max-w-sm flex-col gap-4 rounded-card border border-line bg-surface p-5">
-        <h3 className="text-lg font-semibold">{title}</h3>
-        {children}
-      </div>
     </div>
   )
 }
