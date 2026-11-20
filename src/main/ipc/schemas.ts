@@ -43,6 +43,25 @@ const placeFilter = z.object({
   status: z.array(status).max(8).optional(), category: z.string().max(64).optional()
 })
 
+const str = (max: number) => z.string().max(max)
+// ссылки попадают в href опубликованной страницы: только https:, tel: или пусто (не javascript:)
+const href = str(2000).regex(/^(?:$|https:\/\/|tel:)/)
+/** Контент редактора: файлы фото только img/<n>.jpg внутри папки демо. */
+export const DemoContentSchema = z.object({
+  name: str(200), demoKind: z.enum(['food', 'beauty', 'auto', 'default']), lang: z.enum(['ru', 'uk']),
+  headline: str(200), subhead: str(400), about: str(2000),
+  rating: z.number().min(0).max(5).nullable(), reviewsCount: z.number().int().min(0).nullable(),
+  hours: z.array(str(200)).max(14),
+  items: z.array(z.object({ name: str(200), price: str(50) }).strict()).max(100),
+  reviews: z.array(z.object({ author: str(200), text: str(3000), rating: z.number().min(0).max(5).nullable(), on: bool }).strict()).max(10),
+  photos: z.array(z.object({
+    file: z.string().regex(/^img\/\d{1,4}\.jpg$/), author: str(200).nullable(), source: z.enum(['google', 'user'])
+  }).strict()).max(20),
+  address: str(500).nullable(), mapsUrl: href.nullable(), phone: str(50).nullable(),
+  cta: z.object({ kind: z.enum(['call', 'route', 'book']), target: href }).strict(),
+  showBadge: bool, fromGoogle: bool
+}).strict()
+
 const none = z.tuple([])
 export const ARGS = {
   'settings.get': none,
@@ -84,5 +103,22 @@ export const ARGS = {
   'license.get': none,
   'license.set': z.tuple([z.string().max(4000)]),
   'update.check': none, 'update.download': none, 'update.install': none, 'update.status': none,
-  'app.version': none
+  'app.version': none,
+  'demo.get': z.tuple([id]),
+  'demo.list': none,
+  'demo.match': z.tuple([id]),
+  'demo.build': z.tuple([id, z.object({ source: z.enum(['auto', 'free']), googleId: z.string().min(1).max(300).optional() }).strict()]),
+  'demo.save': z.tuple([id, DemoContentSchema]),
+  'demo.rewrite': z.tuple([id]),
+  'demo.preview': z.tuple([id, DemoContentSchema]),
+  'demo.photoAdd': z.tuple([id]),
+  'demo.importSite': z.tuple([id, z.enum(['folder', 'zip', 'html'])]),
+  'demo.publish': z.tuple([id]),
+  'demo.unpublish': z.tuple([id]),
+  'demo.openLive': z.tuple([id]),
+  'demo.postcard': z.tuple([z.array(id).min(1).max(100)]),
+  'demo.setup': none,
+  'demo.setupGithub': z.tuple([z.string().regex(/^[A-Za-z0-9._-]{1,100}$/).optional()]),
+  'demo.setupWorker': none,
+  'demo.budget': none
 } satisfies Record<ChannelName, z.ZodType>

@@ -7,6 +7,8 @@ import { define, stub, type Fn, type IpcDeps, type Table } from './define'
 import { passHandlers } from './pass'
 import { writeHandlers } from './write'
 import { placesHandlers } from './places'
+import { demoHandlers } from './demo'
+import { DemoService } from '../demo/service'
 import type { TodayView } from '../../shared/ipc'
 import { licenseState, setLicense } from '../license'
 import { backupTo } from '../backup'
@@ -43,7 +45,9 @@ export function createIpc(d: IpcDeps): { handlers: Record<ChannelName, Fn>; isPa
   define(t, 'city.list', () => db.prepare('SELECT id, name FROM cities ORDER BY id').all())
 
   const pass = passHandlers(t, d)
-  placesHandlers(t, d)
+  const demo = new DemoService(d)
+  placesHandlers(t, d, demo)
+  demoHandlers(t, demo)
   writeHandlers(t, d)
 
   define(t, 'today.get', (): TodayView => todayView(db, d.now(), loadSettings(db).dailyGoal))

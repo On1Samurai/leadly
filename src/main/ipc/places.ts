@@ -20,6 +20,7 @@ import { getSecret } from '../secrets'
 import { loadSettings } from '../settings'
 import { PRIORS } from './data'
 import { define, type IpcDeps, type Table } from './define'
+import type { DemoService } from '../demo/service'
 
 export const latestFindings = (db: Db, placeId: number): Finding[] => {
   const r = db.prepare('SELECT findings FROM audits WHERE place_id=? ORDER BY id DESC LIMIT 1').get(placeId) as { findings: string } | undefined
@@ -98,10 +99,20 @@ function takeRefresh(db: Db, now: number): boolean {
   return true
 }
 
+/** Клиент ИИ по настройке провайдера; null — ключа нет. */
+export function askerFor(d: Pick<IpcDeps, 'db' | 'secretEnv' | 'anthropicFactory'>, s: AppSettings): Asker | null {
+  if (s.llmProvider === 'anthropic') {
+    const key = getSecret(d.db, 'anthropic', d.secretEnv)
+    return key ? anthropicAsker(d.anthropicFactory(key)) : null
+  }
+  const key = getSecret(d.db, 'llm', d.secretEnv)
+  return key ? openaiAsker({ baseUrl: s.llmBaseUrl, apiKey: key, model: s.llmModel }) : null
+}
+
 const insideShots = (userDataDir: string, f: string): boolean =>
   resolve(f).startsWith(resolve(userDataDir, 'screenshots') + sep)
 
-export function placesHandlers(t: Table, d: IpcDeps): void {
+export function placesHandlers(t: Table, d: IpcDeps, demo: Pick<DemoService, 'removeForPlace'>): void {
   const { db } = d
 
   define(t, 'places.list', (_e, f) => {
@@ -180,7 +191,9 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
     } finally { refreshing.delete(id) }
   })
 
-  define(t, 'places.remove', (_e, id) => {
+  define(t, 'places.remove', async (_e, id) => {
+    // демо с телефоном не должно остаться в открытом доступе: не сняли — место не удаляем
+    await demo.removeForPlace(id)
     const p = getPlace(db, id)
     if (p) { // кэш текстов, созданный до появления llm_cache.place_id, находим по ключу
       const s = loadSettings(db)
@@ -197,16 +210,8 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
     requireLicense(db, d.now(), d.licensePublicKey)
     const p = need(db, id)
     const s = loadSettings(db)
-    let ask: Asker
-    if (s.llmProvider === 'anthropic') {
-      const key = getSecret(db, 'anthropic', d.secretEnv)
-      if (!key) throw new Error('no_anthropic_key')
-      ask = anthropicAsker(d.anthropicFactory(key))
-    } else {
-      const key = getSecret(db, 'llm', d.secretEnv)
-      if (!key) throw new Error('no_llm_key')
-      ask = openaiAsker({ baseUrl: s.llmBaseUrl, apiKey: key, model: s.llmModel })
-    }
+    const ask = askerFor(d, s)
+    if (!ask) throw new Error(s.llmProvider === 'anthropic' ? 'no_anthropic_key' : 'no_llm_key')
     return generateMessage(inputFor(db, p, s, tone), { ask, db, placeId: id })
   })
 
