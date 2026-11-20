@@ -243,11 +243,12 @@ describe('waitBuild', () => {
     expect(await gh(b.f).waitBuild('x', async (ms) => { clock += ms }, 30_000)).toBe('timeout')
     expect(clock).toBe(30_000)
   })
-  const flaky = (seq: (number | 'offline' | object)[]) => {
+  const flaky = (seq: (number | string | object)[]) => {
     let i = 0
     const f = (async () => {
       const s = seq[Math.min(i++, seq.length - 1)]
       if (s === 'offline') throw new Error('net')
+      if (typeof s === 'string') return new Response(s, { status: 200 })
       return typeof s === 'number' ? new Response('{}', { status: s }) : new Response(JSON.stringify(s), { status: 200 })
     }) as unknown as typeof fetch
     return f
@@ -258,6 +259,13 @@ describe('waitBuild', () => {
   })
   it('4th consecutive transient error throws', async () => {
     await expect(gh(flaky([500, 500, 'offline', 502])).waitBuild('x', async () => {})).rejects.toMatchObject({ code: 'gh_http_502' })
+  })
+  it('2xx with null / non-object body counts as transient, never a TypeError', async () => {
+    const f = flaky(['null', '"str"', '5', { status: 'built', commit: 'x' }])
+    expect(await gh(f).waitBuild('x', async () => {})).toBe('built')
+    const e = await gh(flaky(['null', 'null', '7', 'null'])).waitBuild('x', async () => {}).catch((x) => x)
+    expect(e).toBeInstanceOf(GitHubError)
+    expect(e.code).toBe('gh_http_200')
   })
   it('non-transient error throws at once', async () => {
     await expect(gh(flaky([401])).waitBuild('x', async () => {})).rejects.toMatchObject({ code: 'gh_bad_token' })

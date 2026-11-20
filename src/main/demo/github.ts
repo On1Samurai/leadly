@@ -150,12 +150,15 @@ export class GitHubPages {
     let fails = 0
     for (let elapsed = 0; ; elapsed += 10_000) {
       let b: Res
+      let bad: GitHubError | null = null
       try {
         b = await this.req('GET', `${this.r()}/pages/builds/latest`, undefined, [404])
+        // null / non-object body: same as a hiccup, not a TypeError below
+        if (!b.json || typeof b.json !== 'object') throw (bad = new GitHubError(`gh_http_${b.status}`))
         fails = 0
       } catch (e) {
         // the commit is already pushed: a short GitHub hiccup should not fail the publish
-        const transient = e instanceof GitHubError && (e.code === 'gh_offline' || /^gh_http_5\d\d$/.test(e.code))
+        const transient = e === bad || (e instanceof GitHubError && (e.code === 'gh_offline' || /^gh_http_5\d\d$/.test(e.code)))
         if (!transient || ++fails > 3) throw e
         b = { status: 0, json: {} }
       }
