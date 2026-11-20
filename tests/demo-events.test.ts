@@ -122,4 +122,11 @@ describe('syncDemoEvents', () => {
     expect(todayView(db, 2000, 6).wanted.map((p) => p.id)).toEqual([a])
     expect(todayView(db, 8 * 86_400_000, 6).wanted).toEqual([])
   })
+  it('todayView.wanted: пропадает после исходящего сообщения', async () => {
+    const a = mkDemo('a')
+    await run(api([ev(1, 'a', 'want', 1000)])).p
+    expect(todayView(db, 2000, 6).wanted.map((p) => p.id)).toEqual([a])
+    db.prepare("INSERT INTO messages(place_id,direction,channel,text,created_at) VALUES (?,'out',NULL,'x',1500)").run(a)
+    expect(todayView(db, 2000, 6).wanted).toEqual([])
+  })
 })

@@ -45,14 +45,15 @@ export const toView = (db: Db, p: Place, s: AppSettings): PlaceView => ({
   channels: channelsFor(s.country, contactsOf(db, p.id), p.phoneE164, p.phoneType)
 })
 
-// лимиты блока «Что дальше»: всего не больше 50 строк
-const NEXT_LIMITS = { wanted: 10, remind: 10, replied: 15, fresh: 25 }
+// лимиты блока «Что дальше»: сумма = 50 строк
+const NEXT_LIMITS = { wanted: 5, remind: 10, replied: 10, demo: 5, fresh: 20 }
 const NEXT_SELECT = `SELECT p.id, p.name, p.status, p.remind_at AS remindAt, p.score,
   (SELECT MAX(created_at) FROM messages m WHERE m.place_id=p.id AND m.direction='in') AS lastIn,
   (SELECT MAX(created_at) FROM messages m WHERE m.place_id=p.id AND m.direction='out') AS lastOut,
   (SELECT COUNT(*) FROM demo_events e JOIN demos d ON d.id=e.demo_id WHERE d.place_id=p.id AND e.kind IN ('open','qr')) AS demoOpens,
   (SELECT MAX(e.ts) FROM demo_events e JOIN demos d ON d.id=e.demo_id WHERE d.place_id=p.id AND e.kind IN ('open','qr')) AS lastDemo,
-  EXISTS (SELECT 1 FROM demo_events e JOIN demos d ON d.id=e.demo_id WHERE d.place_id=p.id AND e.kind='want' AND e.ts>=?) AS wanted
+  EXISTS (SELECT 1 FROM demo_events e JOIN demos d ON d.id=e.demo_id WHERE d.place_id=p.id AND e.kind='want' AND e.ts>=?
+    AND e.ts>COALESCE((SELECT MAX(created_at) FROM messages m WHERE m.place_id=p.id AND m.direction='out'),0)) AS wanted
   FROM places p WHERE (? IS NULL OR p.city_id=?)`
 
 type NextRow = Omit<NextActionInput, 'textReady'>
@@ -66,7 +67,7 @@ function nextCandidates(db: Db, cityId: number | undefined, now: number, s: AppS
     ...q(`wanted=1 AND p.status NOT IN ('deal','refused')`, 'p.score DESC', NEXT_LIMITS.wanted),
     ...q(`p.remind_at IS NOT NULL AND p.remind_at<=? AND p.status NOT IN ('deal','refused')`, 'p.remind_at', NEXT_LIMITS.remind, now),
     ...q(`p.status='replied' AND lastIn IS NOT NULL AND lastIn > COALESCE(lastOut,0)`, 'lastIn DESC', NEXT_LIMITS.replied),
-    ...q(`p.status='demo_opened' AND lastDemo IS NOT NULL AND lastDemo > COALESCE(lastOut,0)`, 'lastDemo DESC', NEXT_LIMITS.replied),
+    ...q(`p.status='demo_opened' AND lastDemo IS NOT NULL AND lastDemo > COALESCE(lastOut,0)`, 'lastDemo DESC', NEXT_LIMITS.demo),
     ...q(`p.status='new'`, 'p.in_base DESC, p.score DESC, p.id DESC', NEXT_LIMITS.fresh)
   ]
   const seen = new Set<number>()

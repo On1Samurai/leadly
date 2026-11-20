@@ -169,7 +169,7 @@ app.whenReady().then(() => {
       const cfg = getSetting<WorkerConfig | null>(conn, 'demo:worker', null)
       const secret = getWorkerSecret(conn, secretEnv)
       if (!cfg || !secret) return
-      await await syncDemoEvents(conn, new WorkerApi(fetch, cfg.url, secret), now, (e) => notifier.demo(e))
+      await syncDemoEvents(conn, new WorkerApi(fetch, cfg.url, secret), now, (e) => notifier.demo(e))
     }
   }), Date.now, () => ({ digestTime: loadSettings(conn).digestTime, latestCatchUp: '12:00' }))
   scheduler = sch

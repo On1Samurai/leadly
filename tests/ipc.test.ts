@@ -19,6 +19,7 @@ import { getPlace, insertPlace } from '../src/main/db/repo'
 import type { Place } from '../src/shared/types'
 import { cacheKey } from '../src/main/llm/message'
 import { licensed } from './helpers/license'
+import type { Status } from '../src/shared/types'
 import { nextAction, type NextActionInput } from '../src/shared/nextAction'
 
 const fakeSafe = (available = true): SecretEnv['safeStorage'] => ({
@@ -284,7 +285,7 @@ describe('ipc', () => {
     const rep = insertPlace(db, mkPlace({ name: 'rep', status: 'replied', inBase: true }))
     const ins = db.prepare('INSERT INTO messages(place_id,direction,channel,text,created_at) VALUES (?,?,NULL,?,?)')
     ins.run(rep, 'in', 'hi', 50); ins.run(rep, 'out', 'yo', 20); ins.run(rep, 'out', 'again', 30)
-    for (let i = 0; i < 80; i++) insertPlace(db, mkPlace({ name: `n${i}`, score: i, inBase: i >= 60 }))
+    for (let i = 0; i < 80; i++) insertPlace(db, mkPlace({ name: `n${i}`, score: i, inBase: i >= 65 }))
     insertPlace(db, mkPlace({ name: 'notInBase', score: 999, inBase: false }))
     const h = buildHandlers(mkDeps(env()))
     const r = (await h['places.nextCandidates']({} as never)) as { id: number; name: string; score: number; lastIn: number | null; lastOut: number | null; textReady: boolean; remindAt: number | null }[]
@@ -316,5 +317,31 @@ describe('ipc', () => {
     const r2 = (await h['places.nextCandidates']({} as never)) as NextActionInput[]
     expect(r2.map((x) => x.name)).toEqual(['due', 'low', 'high'])
     expect(nextAction(r2, 1000)).toMatchObject({ kind: 'remind', placeId: due })
+  })
+
+  it('places.nextCandidates: wanted и демо-открытия', async () => {
+    addCity()
+    const demo = (name: string, status: Status, evs: [string, number][], outAt?: number): number => {
+      const id = insertPlace(db, mkPlace({ name, status }))
+      const did = Number(db.prepare("INSERT INTO demos(place_id,slug,kind,source,content,created_at,updated_at) VALUES (?,?,'site','x','{}',0,0)").run(id, name).lastInsertRowid)
+      for (const [k, ts] of evs) db.prepare('INSERT INTO demo_events(demo_id,remote_id,kind,ts) VALUES (?,?,?,?)').run(did, Math.random() * 1e9, k, ts)
+      if (outAt !== undefined) db.prepare("INSERT INTO messages(place_id,direction,channel,text,created_at) VALUES (?,'out',NULL,'x',?)").run(id, outAt)
+      return id
+    }
+    const A = demo('A', 'demo_opened', [['want', 900]])
+    const dealId = demo('D', 'deal', [['want', 900]])
+    const B = demo('B', 'demo_opened', [['want', -700_000_000]])
+    const C = demo('C', 'demo_opened', [['open', 100], ['qr', 200]], 300)
+    const E = demo('E', 'demo_opened', [['open', 100], ['qr', 500]], 300)
+    const W = demo('W', 'demo_opened', [['want', 400]], 500) // написали после «Хочу так»
+    const h = buildHandlers(mkDeps(env()))
+    const r = (await h['places.nextCandidates']({} as never)) as NextActionInput[]
+    const get = (id: number): NextActionInput | undefined => r.find((x) => x.id === id)
+    expect(get(A)?.wanted).toBe(true)
+    expect(get(dealId)).toBeUndefined()
+    expect(get(B)).toBeUndefined() // «хочу» старше 7 дней, открытий нет
+    expect(get(C)).toBeUndefined() // исходящее позже последнего открытия
+    expect(get(E)).toMatchObject({ demoOpens: 2, lastDemo: 500, wanted: false })
+    expect(get(W)).toBeUndefined()
   })
 })

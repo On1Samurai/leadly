@@ -19,7 +19,7 @@ export function Today(): React.JSX.Element {
     window.api.city.list().then((cs) => setCities(new Map(cs.map((c) => [c.id, c.name])))).catch(() => undefined)
   }, [load])
 
-  const ids = useMemo(() => (v ? [...v.wanted, ...v.remindToday, ...v.replied].map((p) => p.id) : []), [v])
+  const ids = useMemo(() => (v ? [...new Set([...v.wanted, ...v.remindToday, ...v.replied].map((p) => p.id))] : []), [v])
   const onToggle = useCallback((id: number, inBase: boolean) => {
     window.api.places.toBase(id, inBase).then(load).catch((e) => setErr(errText(e)))
   }, [load])
