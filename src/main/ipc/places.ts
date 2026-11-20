@@ -15,12 +15,11 @@ import { scorePlace } from '../core/scoring'
 import { classifyWeb } from '../core/webclass'
 import { buildMessageInput, cacheKey, generateMessage, isTextReady, type MessageInput } from '../llm/message'
 import { askerFor } from '../llm/asker'
-import { historyFor, rescore } from '../search/rescore'
+import { historyFor, modelWeights, rescore } from '../search/rescore'
 import { GoogleClient, Budget } from '../sources/google'
 import { getSecret } from '../secrets'
 import { loadSettings } from '../settings'
 import { PRIORS } from './data'
-import { modelWeights } from '../core/logreg'
 import { define, type IpcDeps, type Table } from './define'
 import type { DemoService } from '../demo/service'
 
@@ -85,7 +84,7 @@ function nextCandidates(db: Db, cityId: number | undefined, now: number, s: AppS
 
 /** Пересчёт процента категории в городе места (история ответов могла измениться). */
 export function rescorePlace(db: Db, p: Place, now: number): void {
-  rescore(db, PRIORS, { categoryId: p.category, cityId: p.cityId }, now, modelWeights(db, PRIORS).weights)
+  rescore(db, PRIORS, { categoryId: p.category, cityId: p.cityId }, now)
 }
 
 function need(db: Db, id: number): Place {

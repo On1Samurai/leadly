@@ -6,9 +6,10 @@ import { openDb, type Db } from '../src/main/db/db'
 import { getSetting, insertPlace } from '../src/main/db/repo'
 import { fitWeights, modelWeights, rescoreAll, trainModel, type Sample } from '../src/main/core/logreg'
 import { logit, type WeightKey } from '../src/main/core/scoring'
-import { Scheduler, type Handlers } from '../src/main/scheduler'
+import { Scheduler, noreplyRescore, type Handlers } from '../src/main/scheduler'
 import { buildHandlers } from '../src/main/ipc/handlers'
 import { AuditQueue } from '../src/main/audit/queue'
+import { rescore } from '../src/main/search/rescore'
 import { PRIORS } from '../src/main/ipc/data'
 import { stage2Deps } from './helpers/deps'
 import { licensed } from './helpers/license'
@@ -83,6 +84,34 @@ describe('trainModel', () => {
     expect(modelWeights(db, PRIORS).trainedOn).toBe(30)
   })
 })
+
+describe('consistency with model', () => {
+  it('noreplyRescore keeps model-weight scores; list score equals card', async () => {
+    fill(5, 25)
+    const id = mk('written', { phoneType: 'mobile', webClass: 'own' })
+    db.prepare("INSERT INTO status_log(place_id,from_status,to_status,at) VALUES (?,NULL,'written',1)").run(id)
+    rescoreAll(db, PRIORS, 1000)
+    const sc = (): number => (db.prepare('SELECT score FROM places WHERE id=?').get(id) as { score: number }).score
+    const after = sc()
+    noreplyRescore(db, PRIORS, 1000)
+    expect(sc()).toBe(after)
+    const h = buildHandlers({
+      db, secretEnv: { safeStorage: { isEncryptionAvailable: () => true, encryptString: (x: string) => Buffer.from(x), decryptString: (b: Buffer) => b.toString() }, isDev: false, env: {} },
+      userDataDir: dir, auditQueue: new AuditQueue(1, async () => undefined), now: () => 1000, rng: Math.random,
+      osm: async () => [], saveDialog: async () => null, anthropicFactory: () => { throw new Error('unused') }, ...stage2Deps,
+      openExternal: async () => undefined, writeClipboard: () => undefined, licensePublicKey: licensed(db)
+    })
+    const d = (await h['places.get']({} as never, id)) as PlaceDetails
+    expect(Math.round(d.score.p * 1000) / 10).toBe(after)
+    const prior = rescoreWith(id)
+    expect(prior).not.toBe(after) // модель реально отличается от априорных весов
+  })
+})
+
+function rescoreWith(id: number): number {
+  rescore(db, PRIORS, { categoryId: 'cafe', cityId: 1 }, 1000, PRIORS.weights)
+  return (db.prepare('SELECT score FROM places WHERE id=?').get(id) as { score: number }).score
+}
 
 describe('scheduler', () => {
   it('ensureDaily adds hourly rescore', () => {

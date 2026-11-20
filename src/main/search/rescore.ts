@@ -1,4 +1,5 @@
 import type { Db } from '../db/db'
+import { getSetting } from '../db/repo'
 import { loadSettings } from '../settings'
 import { isNoReply, scorePlace, type History, type Priors } from '../core/scoring'
 import type { PhoneType, Status, WebClass } from '../../shared/types'
@@ -38,7 +39,7 @@ export function historyFor(db: Db, scope: { categoryId: string; cityId: number }
 }
 
 /** Пересчёт score/score_reason (weights — веса модели, иначе априорные) всех мест категории в городе по истории ответов. */
-export function rescore(db: Db, priors: Priors, scope: { categoryId: string; cityId: number }, now: number, weights: Priors['weights'] = priors.weights): void {
+export function rescore(db: Db, priors: Priors, scope: { categoryId: string; cityId: number }, now: number, weights: Priors['weights'] = modelWeights(db, priors).weights): void {
   const rows = loadRows(db, scope)
   const hist = historyOf(db, rows, scope.cityId, now)
   const prior = priors.categories[scope.categoryId] ?? priors.default
@@ -52,4 +53,10 @@ export function rescore(db: Db, priors: Priors, scope: { categoryId: string; cit
       upd.run(Math.round(s.p * 1000) / 10, s.reason, r.id)
     }
   })()
+}
+
+/** Веса обученной модели (settings 'model') или априорные, если модель не обучена. */
+export function modelWeights(db: Db, priors: Priors): { weights: Priors['weights']; trainedOn: number | null } {
+  const m = getSetting<{ weights: Priors['weights']; n: number } | null>(db, 'model', null)
+  return m ? { weights: m.weights, trainedOn: m.n } : { weights: priors.weights, trainedOn: null }
 }

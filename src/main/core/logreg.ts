@@ -1,11 +1,12 @@
 import type { Db } from '../db/db'
-import { getSetting, setSetting } from '../db/repo'
+import { setSetting } from '../db/repo'
 import { loadSettings } from '../settings'
-import { historyOf, loadRows, REPLIED_NOW, rescore } from '../search/rescore'
+import { historyOf, loadRows, modelWeights, REPLIED_NOW, rescore } from '../search/rescore'
 import { applicable, isNoReply, logit, posteriorMean, sigmoid, type Priors, type WeightKey } from './scoring'
 
 export interface Sample { keys: WeightKey[]; offset: number; y: 0 | 1 }
 export interface Model { weights: Record<WeightKey, number>; n: number; positives: number; trainedAt: number }
+export { modelWeights }
 export const MIN_LABELS = 30
 export const MIN_POSITIVE = 5
 
@@ -55,11 +56,6 @@ export function trainModel(db: Db, priors: Priors, now: number): Model | null {
   const model: Model = { weights: fitWeights(samples, priors.weights), n: samples.length, positives, trainedAt: now }
   setSetting(db, 'model', model)
   return model
-}
-
-export function modelWeights(db: Db, priors: Priors): { weights: Priors['weights']; trainedOn: number | null } {
-  const m = getSetting<Model | null>(db, 'model', null)
-  return m ? { weights: m.weights, trainedOn: m.n } : { weights: priors.weights, trainedOn: null }
 }
 
 export function rescoreAll(db: Db, priors: Priors, now: number): void {
