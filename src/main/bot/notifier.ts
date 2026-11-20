@@ -1,4 +1,4 @@
-import type { Notifier } from '../notify'
+import { demoText, type Notifier } from '../notify'
 import { digestFromView, escapeHtml } from './digest'
 
 export interface BotNotifierDeps {
@@ -47,6 +47,11 @@ export function botNotifier(d: BotNotifierDeps): Notifier {
       const k = `${p.id}:${p.remindAt}`
       if (!shownReminders.has(k)) { shownReminders.add(k); await d.desktop.reminder(p) }
       await viaBot(`Пора напомнить: ${escapeHtml(p.name)}`)
+    },
+    demo: async (e) => {
+      let ok = false
+      try { ok = await viaBot(escapeHtml(demoText(e))) } catch { /* сеть: показываем локально */ }
+      if (!ok) await d.desktop.demo(e)
     }
   }
 }

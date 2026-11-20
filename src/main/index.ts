@@ -13,7 +13,11 @@ import { PRIORS } from './ipc/data'
 import { desktopNotifier } from './notify'
 import { createBotManager, type BotManager } from './bot/bot'
 import { botNotifier } from './bot/notifier'
-import { getSecret } from './secrets'
+import { getSecret, getWorkerSecret } from './secrets'
+import { getSetting } from './db/repo'
+import type { WorkerConfig } from './demo/cloudflare'
+import { syncDemoEvents } from './demo/events'
+import { WorkerApi } from './demo/worker-api'
 import { makeHandlers, noreplyRescore, Scheduler } from './scheduler'
 import { loadSettings } from './settings'
 import { createUpdater } from './updater'
@@ -153,13 +157,20 @@ app.whenReady().then(() => {
     writeClipboard: (text) => clipboard.writeText(text),
     anthropicFactory: (apiKey) => new Anthropic({ apiKey })
   }).isPassRunning
+  const notifier = botNotifier({
+    send: (html) => botMgr.send(html), bound: botMgr.bound, unlink: botMgr.unlink, desktop: desktopNotifier,
+    log: (m, e) => console.error(m, e)
+  })
   const sch = new Scheduler(conn, makeHandlers(conn, {
-    notify: botNotifier({
-      send: (html) => botMgr.send(html), bound: botMgr.bound, unlink: botMgr.unlink, desktop: desktopNotifier,
-      log: (m, e) => console.error(m, e)
-    }),
+    notify: notifier,
     backup: (now) => backupNow(conn, join(userDataDir, 'backups'), now),
-    noreply: (now) => noreplyRescore(conn, PRIORS, now)
+    noreply: (now) => noreplyRescore(conn, PRIORS, now),
+    demoEvents: async (now) => {
+      const cfg = getSetting<WorkerConfig | null>(conn, 'demo:worker', null)
+      const secret = getWorkerSecret(conn, secretEnv)
+      if (!cfg || !secret) return
+      await await syncDemoEvents(conn, new WorkerApi(fetch, cfg.url, secret), now, (e) => notifier.demo(e))
+    }
   }), Date.now, () => ({ digestTime: loadSettings(conn).digestTime, latestCatchUp: '12:00' }))
   scheduler = sch
   sch.start()

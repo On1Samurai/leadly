@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb, type Db } from '../src/main/db/db'
-import { insertPlace, setStatus } from '../src/main/db/repo'
+import { insertPlace, setSetting, setStatus } from '../src/main/db/repo'
 import { Scheduler, makeHandlers, type Handlers } from '../src/main/scheduler'
 import { todayView } from '../src/main/today'
 import type { Place } from '../src/shared/types'
@@ -20,7 +20,8 @@ const fake = (over: Partial<Handlers> = {}): Handlers => ({
   reminder: async (p) => { calls.push(`reminder:${p.placeId}`) },
   digest: async () => { calls.push('digest') },
   backup: async () => { calls.push('backup') },
-  noreply: async () => { calls.push('noreply') }, ...over
+  noreply: async () => { calls.push('noreply') },
+  demo_events: async () => { calls.push('demo_events') }, ...over
 })
 beforeEach(() => { calls.length = 0 })
 const pending = (kind: string): { run_at: number }[] => db.prepare('SELECT run_at FROM jobs WHERE kind=? AND done=0').all(kind) as never
@@ -105,11 +106,35 @@ describe('Scheduler', () => {
   })
 })
 
+describe('demo_events job', () => {
+  it('ensureDaily adds it only when Worker is configured, once', () => {
+    const s = new Scheduler(db, fake(), () => at(8))
+    s.ensureDaily(at(8), S)
+    expect(pending('demo_events')).toEqual([])
+    setSetting(db, 'demo:worker', { accountId: 'a', d1Id: 'd', url: 'https://w', version: '1' })
+    s.ensureDaily(at(8), S); s.ensureDaily(at(8), S)
+    expect(pending('demo_events')).toEqual([{ run_at: at(8) }])
+  })
+  it('handler runs sync and reschedules +5 min; no worker -> no-op', async () => {
+    let n = 0
+    const h = makeHandlers(db, {
+      notify: { digest: async () => undefined, reminder: async () => undefined },
+      backup: async () => undefined, noreply: async () => undefined, demoEvents: async () => { n++ }
+    })
+    await h.demo_events({}, at(8))
+    expect(n).toBe(0); expect(pending('demo_events')).toEqual([])
+    setSetting(db, 'demo:worker', { accountId: 'a', d1Id: 'd', url: 'https://w', version: '1' })
+    await h.demo_events({}, at(8)); await h.demo_events({}, at(8))
+    expect(n).toBe(2)
+    expect(pending('demo_events')).toEqual([{ run_at: at(8) + 5 * 60_000 }])
+  })
+})
+
 describe('reminder handler', () => {
   const sent: string[] = []
   const mk = (): Handlers => makeHandlers(db, {
     notify: { digest: async () => { sent.push('digest') }, reminder: async (p) => { sent.push(p.name) } },
-    backup: async () => undefined, noreply: async () => undefined
+    backup: async () => undefined, noreply: async () => undefined, demoEvents: async () => undefined
   })
   beforeEach(() => { sent.length = 0 })
   it('notifies for a place in later', async () => {

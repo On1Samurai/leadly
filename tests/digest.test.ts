@@ -45,14 +45,14 @@ describe('auth decide', () => {
 })
 
 const place = { id: 1, name: 'Кафе', remindAt: 5 } as Place
-const view = { goal: 6, written: 0, remindToday: [], replied: [], leftToday: 6 } as TodayView
+const view = { goal: 6, written: 0, remindToday: [], replied: [], wanted: [], leftToday: 6 } as TodayView
 const TOKEN = '123:SECRET-TOKEN'
 const mk = (send: (t: string) => Promise<void>, bound = true) => {
   const log: string[] = []
   let isBound = bound
   const n = botNotifier({
     send, bound: () => isBound, unlink: () => { isBound = false; log.push('unlink') },
-    desktop: { digest: async () => { log.push('d-digest') }, reminder: async () => { log.push('d-rem') } },
+    desktop: { digest: async () => { log.push('d-digest') }, reminder: async () => { log.push('d-rem') }, demo: async (e) => { log.push('d-demo:' + e.kind) } },
     log: (_m, e) => log.push('log:' + String(e))
   })
   return { n, log }
@@ -126,5 +126,26 @@ describe('bot manager', () => {
     await m.stop()
     expect(bots.every((b) => b.stopped)).toBe(true)
     db.close()
+  })
+})
+
+describe('botNotifier.demo', () => {
+  const e = { placeName: 'A<b>', kind: 'qr' as const }
+  it('sends via bot with escaped text', async () => {
+    const sent: string[] = []
+    const { n, log } = mk(async (t) => { sent.push(t) })
+    await n.demo(e)
+    expect(sent).toEqual(['A&lt;b&gt;: открыли демо по QR'])
+    expect(log).toEqual([])
+  })
+  it('no bot -> desktop', async () => {
+    const { n, log } = mk(async () => undefined, false)
+    await n.demo(e)
+    expect(log).toEqual(['d-demo:qr'])
+  })
+  it('network error -> desktop fallback', async () => {
+    const { n, log } = mk(async () => { throw netErr() })
+    await n.demo({ placeName: 'A', kind: 'want' })
+    expect(log.at(-1)).toBe('d-demo:want')
   })
 })

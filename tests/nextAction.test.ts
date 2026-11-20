@@ -57,4 +57,19 @@ describe('percent', () => {
     expect(roundPercent(97)).toBe(95)
     expect(percentLabel(23.2)).toBe('≈25%')
   })
+  it('«хочу так» важнее напоминания', () => {
+    const r = nextAction([
+      mk({ id: 1, name: 'А', remindAt: NOW - 10 }),
+      mk({ id: 2, name: 'Б', status: 'demo_opened', wanted: true })
+    ], NOW)
+    expect(r).toEqual({ kind: 'want', placeId: 2, line: 'Б: нажали «Хочу так» — напишите', button: 'Открыть' })
+  })
+  it('демо открывали: после ответа и до нового', () => {
+    const items = [mk({ id: 1, name: 'Н', score: 90 }), mk({ id: 2, name: 'Д', status: 'demo_opened', demoOpens: 2, lastOut: 5, lastDemo: 10 })]
+    expect(nextAction(items, NOW)).toEqual({ kind: 'demo', placeId: 2, line: 'Д: открыли демо 2 раз — напишите ещё раз', button: 'Написать' })
+    expect(nextAction([mk({ id: 3, name: 'О', status: 'replied', lastIn: 9 }), ...items], NOW)?.kind).toBe('reply')
+  })
+  it('демо: уже писали после открытия — не показываем', () => {
+    expect(nextAction([mk({ status: 'demo_opened', demoOpens: 1, lastOut: 9, lastDemo: 5 })], NOW)).toBeNull()
+  })
 })

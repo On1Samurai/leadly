@@ -19,7 +19,7 @@ export function Today(): React.JSX.Element {
     window.api.city.list().then((cs) => setCities(new Map(cs.map((c) => [c.id, c.name])))).catch(() => undefined)
   }, [load])
 
-  const ids = useMemo(() => (v ? [...v.remindToday, ...v.replied].map((p) => p.id) : []), [v])
+  const ids = useMemo(() => (v ? [...v.wanted, ...v.remindToday, ...v.replied].map((p) => p.id) : []), [v])
   const onToggle = useCallback((id: number, inBase: boolean) => {
     window.api.places.toBase(id, inBase).then(load).catch((e) => setErr(errText(e)))
   }, [load])
@@ -56,6 +56,7 @@ export function Today(): React.JSX.Element {
             </div>
             <p className="text-sm">{v.leftToday > 0 ? `Осталось на сегодня: ${v.leftToday}` : 'Цель на сегодня выполнена'}</p>
           </div>
+          {v.wanted.length > 0 && list('Хотят такой сайт', v.wanted, '')}
           {list('Напомнить сегодня', v.remindToday, 'Напоминаний на сегодня нет.')}
           {list('Ответили', v.replied, 'Пока никто не ответил.')}
         </>

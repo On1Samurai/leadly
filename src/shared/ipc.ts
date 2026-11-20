@@ -38,7 +38,7 @@ export interface PlaceDetails extends Omit<Place, 'score'> {
   score: Score
   channels: Channel[]
 }
-export interface TodayView { goal: number; written: number; remindToday: PlaceView[]; replied: PlaceView[]; leftToday: number }
+export interface TodayView { goal: number; written: number; remindToday: PlaceView[]; replied: PlaceView[]; wanted: PlaceView[]; leftToday: number }
 
 export type WriteOpen = { url: string | null; prefilled: boolean; left: number } | { blocked: true; limit: number }
 
