@@ -40,8 +40,8 @@ export interface IpcDeps {
   /** GitHub, Cloudflare, Worker. */
   fetch: FetchFn
   sleep: SleepFn
-  /** JPEG, ширина ≤ 1200, качество 80. */
-  resizeImage: (buf: Buffer) => Buffer
+  /** JPEG, ширина ≤ maxWidth (по умолчанию 1200), качество 80. */
+  resizeImage: (buf: Buffer, maxWidth?: number) => Buffer
   printPdf: (html: string) => Promise<Buffer>
   openDialog: (kind: 'folder' | 'zip' | 'html' | 'image') => Promise<string | null>
   anthropicFactory: (apiKey: string) => Pick<Anthropic, 'beta'>

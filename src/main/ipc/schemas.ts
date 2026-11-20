@@ -118,7 +118,7 @@ export const ARGS = {
   'demo.publish': z.tuple([id]),
   'demo.unpublish': z.tuple([id]),
   'demo.openLive': z.tuple([id]),
-  'demo.postcard': z.tuple([z.array(id).min(1).max(100)]),
+  'demo.postcard': z.tuple([z.array(id).min(1).max(4)]),
   'demo.setup': none,
   'demo.setupGithub': z.tuple([z.string().regex(/^[A-Za-z0-9._-]{1,100}$/).optional()]),
   'demo.setupWorker': none,

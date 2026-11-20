@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import type { DemoContent, DemoPhoto, DemoSource, DemoStatus, DemoView, SetupState } from '../../shared/demo/types'
 import type { Place } from '../../shared/types'
 import { demoGoogleLeft, refundDemoGoogle, takeDemoGoogle } from '../core/daily'
-import { getPlace, updatePlace } from '../db/repo'
+import { getPlace, getSetting, updatePlace } from '../db/repo'
+import type { WorkerConfig } from './cloudflare'
 import { CATEGORIES } from '../ipc/data'
 import type { IpcDeps } from '../ipc/define'
 import { askerFor } from '../llm/asker'
@@ -10,6 +11,7 @@ import { requireLicense } from '../license'
 import { getSecret } from '../secrets'
 import { loadSettings } from '../settings'
 import { defaultCta, demoFiles, renderDemoHtml } from './build'
+import { postcardHtml } from './postcard'
 import { generateDemoCopy } from './copy'
 import { nextPhotoNum, readDemoFile, readSite, removeDemoDir, writeDemoFile, writeSite } from './files'
 import { GitHubError } from './github'
@@ -324,6 +326,30 @@ export class DemoService {
         this.d.db.prepare('DELETE FROM place_details WHERE place_id=?').run(placeId)
       })()
     })
+  }
+
+  /** PDF с открытками: 1 демо -> 4 копии, 2-4 -> по одной. Путь файла или null (диалог отменён). */
+  async postcard(placeIds: number[]): Promise<string | null> {
+    const rows = placeIds.map((id) => this.need(id))
+    if (rows.some((r) => r.status !== 'published')) throw new Error('demo_not_published')
+    const worker = getSetting<WorkerConfig | null>(this.d.db, 'demo:worker', null) // для QR секрет не нужен
+    if (!worker) throw new Error('demo_not_setup')
+    const cards = rows.map((r) => {
+      const c = JSON.parse(r.content) as DemoContent | null
+      const first = c?.photos[0]
+      let cover: string | null = null
+      if (first) {
+        try { cover = `data:image/jpeg;base64,${this.d.resizeImage(readDemoFile(this.root, r.slug, first.file), 600).toString('base64')}` } catch { /* нет файла: градиент */ }
+      }
+      return { name: c?.name ?? this.place(r.place_id).name, qrUrl: `${worker.url}/${r.slug}`, headline: c?.headline ?? '', cover }
+    })
+    const html = await postcardHtml(cards.length === 1 ? Array(4).fill(cards[0]) : cards, loadSettings(this.d.db).lang)
+    const day = new Date(this.d.now())
+    const name = `leadly-postcards-${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}.pdf`
+    const path = await this.d.saveDialog(name, 'pdf')
+    if (!path) return null
+    writeFileSync(path, await this.d.printPdf(html))
+    return path
   }
 
   async setup(): Promise<SetupState> {

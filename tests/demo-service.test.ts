@@ -493,7 +493,4 @@ describe('demo service', () => {
     expect(html()).toContain('@mynick')
   })
 
-  it('postcard is a stub for now', async () => {
-    await expect(h()['demo.postcard'](ev, [1])).rejects.toThrow('not_implemented')
-  })
 })

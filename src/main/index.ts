@@ -1,5 +1,7 @@
 import { app, clipboard, dialog, safeStorage, shell, BrowserWindow, Menu, Tray, nativeImage } from 'electron'
 import Anthropic from '@anthropic-ai/sdk'
+import { randomUUID } from 'crypto'
+import { rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { navDecision } from './app-url'
@@ -95,14 +97,17 @@ const applyAutostart = (conn: Db): void => {
   app.setLoginItemSettings({ openAtLogin: loadSettings(conn).autostart, args: ['--hidden'] })
 }
 
-/** HTML -> PDF через скрытое окно; окно закрывается и при ошибке. */
+/** HTML -> PDF через скрытое окно; файл и окно убираются и при ошибке. Через файл, а не data: URL (лимит ~2 МБ). */
 async function printPdf(html: string): Promise<Buffer> {
   const win = new BrowserWindow({ show: false, webPreferences: { javascript: false } })
+  const file = join(app.getPath('temp'), `leadly-print-${randomUUID()}.html`)
   try {
-    await win.loadURL(`data:text/html;base64,${Buffer.from(html).toString('base64')}`)
+    writeFileSync(file, html)
+    await win.loadFile(file)
     return await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { top: 0, bottom: 0, left: 0, right: 0 } })
   } finally {
     win.destroy()
+    rmSync(file, { force: true })
   }
 }
 
@@ -140,10 +145,10 @@ app.whenReady().then(() => {
     },
     fetch: (input, init) => fetch(input, init),
     sleep: realSleep,
-    resizeImage: (b) => {
+    resizeImage: (b, maxWidth = 1200) => {
       const img = nativeImage.createFromBuffer(b)
       const { width } = img.getSize()
-      return (width > 1200 ? img.resize({ width: 1200 }) : img).toJPEG(80)
+      return (width > maxWidth ? img.resize({ width: maxWidth }) : img).toJPEG(80)
     },
     printPdf,
     openDialog: async (kind) => {
