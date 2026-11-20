@@ -85,7 +85,16 @@ export class DemoService {
   /** Папка с фото Google из кэша place_details (их slug пишется вместе с ними). */
   private pinnedSlug(placeId: number): string | null {
     const r = this.d.db.prepare('SELECT photos FROM place_details WHERE place_id=?').get(placeId) as { photos: string | null } | undefined
-    return (JSON.parse(r?.photos ?? '[]') as { slug?: string }[])[0]?.slug ?? null
+    let photos: unknown
+    try { photos = JSON.parse(r?.photos ?? '[]') } catch { photos = null }
+    if (!Array.isArray(photos)) {
+      // битый кэш: папку уже не узнать — строка удаляется, сборка возьмёт данные заново
+      console.warn('place_details corrupt', 'photos')
+      this.d.db.prepare('DELETE FROM place_details WHERE place_id=?').run(placeId)
+      return null
+    }
+    const slug = (photos[0] as { slug?: unknown } | null)?.slug
+    return typeof slug === 'string' ? slug : null
   }
   /** Вставка или смена вида; slug и статус существующего демо сохраняются. */
   private upsert(placeId: number, slug: string, kind: Row['kind'], source: DemoSource, content: DemoContent | null | undefined): void {

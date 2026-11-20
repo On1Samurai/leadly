@@ -71,6 +71,20 @@ describe('injectTracking', () => {
     expect(out).toContain('@nick&lt;</a></body>')
     expect(r.content.every((b) => b < 0x80 || cp.includes(b))).toBe(true)
   })
+  it('declared non-UTF-8 charset on an ASCII page: badge as numeric character references', () => {
+    for (const head of ['<meta charset="windows-1251">', "<META CHARSET='KOI8-R'>", '<meta http-equiv="Content-Type" content="text/html; charset=windows-1251">']) {
+      const [r] = injectTracking([f('index.html', `<head>${head}</head><body>hi</body>`)], links, true, 'ru')
+      const out = r.content.toString('latin1')
+      expect(out, head).toContain('<a href="https://w/">&#1057;&#1072;&#1081;&#1090; ')
+      expect(r.content.every((b) => b < 0x80), head).toBe(true)
+    }
+  })
+  it('declared UTF-8 charset: badge stays UTF-8', () => {
+    for (const head of ['<meta charset="UTF-8">', '<meta charset=utf8>', '<meta http-equiv="content-type" content="text/html; charset=utf-8">']) {
+      const [r] = injectTracking([f('index.html', `<head>${head}</head><body>hi</body>`)], links, true, 'ru')
+      expect(r.content.toString(), head).toContain('hi<a href="https://w/">Сайт сделал @nick&lt;</a></body>')
+    }
+  })
   it('no head: after body tag', () => {
     const [r] = injectTracking([f('index.html', '<body class="a">hi</body>')], links, false, 'ru')
     expect(r.content.toString()).toBe(`<body class="a">${meta}${pix}hi</body>`)

@@ -304,6 +304,25 @@ describe('demo service', () => {
     await expect(h()['demo.unpublish'](ev, id)).rejects.toThrow('gh_no_access')
   })
 
+  it('corrupt place_details.photos: build works, places.remove succeeds', async () => {
+    const corrupt = (id: number, photos: string) => db.prepare('INSERT OR REPLACE INTO place_details(place_id,hours,reviews,photos,summary,fetched_at) VALUES (?,?,?,?,?,?)')
+      .run(id, '[]', '[]', photos, null, now)
+    const free = mk()
+    corrupt(free, '{broken')
+    expect((await build(free)).source).toBe('free')
+    setSecret(db, 'google', 'GK', secretEnv)
+    const g = mk({ googlePlaceId: 'g1' })
+    corrupt(g, 'null')
+    const v = await build(g)
+    expect(v.source).toBe('google')
+    expect(v.content!.photos.map((p) => p.file)).toEqual(['img/1.jpg', 'img/2.jpg'])
+    const orphan = mk({ name: 'Другое' })
+    corrupt(orphan, '{broken')
+    await h()['places.remove'](ev, orphan)
+    expect(getPlace(db, orphan)).toBeNull()
+    expect(db.prepare('SELECT 1 FROM place_details WHERE place_id=?').get(orphan)).toBeUndefined()
+  })
+
   it('build: cta phone comes from the clamped phone', async () => {
     const id = mk({ category: 'barber', phoneE164: '+7' + '1'.repeat(60) })
     const v = await build(id)

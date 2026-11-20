@@ -98,6 +98,11 @@ function splice(buf: Buffer, at: number, snippet: string): Buffer {
 const isUtf8 = (b: Buffer): boolean => {
   try { new TextDecoder('utf-8', { fatal: true }).decode(b); return true } catch { return false }
 }
+// first declared charset (<meta charset> or http-equiv content); ASCII markers, so the latin1 view is enough
+const declaresOther = (b: Buffer): boolean => {
+  const m = /<meta[^>]*?charset\s*=\s*["']?\s*([\w.:-]+)/i.exec(b.toString('latin1'))
+  return !!m && !/^utf-?8$/i.test(m[1])
+}
 // numeric character references render the same in any charset
 const ncr = (s: string): string => s.replace(/[^\x00-\x7f]/gu, (c) => `&#${c.codePointAt(0)};`)
 
@@ -114,7 +119,7 @@ export function injectTracking(files: ImportedFile[], links: DemoLinks, badge: b
     buf = splice(buf, head ? head.index : body ? body.index + body[0].length : 0, track)
     if (badge) {
       const end = /<\/body>/i.exec(buf.toString('latin1'))
-      buf = splice(buf, end ? end.index : buf.length, isUtf8(f.content) ? badgeHtml : ncr(badgeHtml))
+      buf = splice(buf, end ? end.index : buf.length, isUtf8(f.content) && !declaresOther(f.content) ? badgeHtml : ncr(badgeHtml))
     }
     return { path: f.path, content: buf }
   })
