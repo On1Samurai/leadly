@@ -79,6 +79,18 @@ describe('syncDemoEvents', () => {
     await r3.p
     expect(r3.sent).toEqual(['Кафе:open'])
   })
+  it('open throttle: failed notify does not consume the slot', async () => {
+    mkDemo('a')
+    const t0 = 1_000_000
+    let fail = true
+    const sent: string[] = []
+    const notify = async (e: { placeName: string; kind: string }) => { if (fail) throw new Error('tg down'); sent.push(`${e.placeName}:${e.kind}`) }
+    await syncDemoEvents(db, api([ev(1, 'a')]), t0, notify)
+    expect(getSetting<Record<string, number>>(db, 'demo:lastOpenNotify', {}).a).toBeUndefined()
+    fail = false
+    await syncDemoEvents(db, api([ev(2, 'a')]), t0 + 60_000, notify)
+    expect(sent).toEqual(['Кафе:open'])
+  })
   it('throttle state pruned after 24h', async () => {
     mkDemo('a'); mkDemo('b')
     const t0 = 1_000_000

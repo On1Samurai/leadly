@@ -60,7 +60,7 @@ export function Demos(): React.JSX.Element {
                     <td className="px-3 py-2">
                       <button type="button" className="cursor-pointer text-left font-semibold hover:underline" onClick={() => navigate('demoEditor', { placeId: r.placeId })}>{r.placeName}</button>
                     </td>
-                    <td className="px-3 py-2">{DEMO_STATUS_LABEL[r.status]}{r.status === 'error' && r.error ? <span className="block text-xs text-danger">{errText(r.error)}</span> : null}</td>
+                    <td className="px-3 py-2">{DEMO_STATUS_LABEL[r.status]}{r.error ? <span className="block text-xs text-danger">{errText(r.error)}</span> : null}</td>
                     <td className="max-w-64 truncate px-3 py-2 font-mono text-xs text-muted">{r.url ?? '—'}</td>
                     <td className="px-3 py-2 font-mono">{r.counts.open} · {r.counts.qr} · {r.counts.want}</td>
                     <td className="px-3 py-2 font-mono text-xs text-muted">{r.publishedAt ? new Date(r.publishedAt).toLocaleDateString('ru-RU') : '—'}</td>

@@ -1,6 +1,6 @@
 import type { FetchFn, SleepFn } from '../sources/http'
 
-type GhCode = 'gh_bad_token' | 'gh_no_access' | 'gh_not_found' | 'gh_conflict' | 'gh_offline' | `gh_http_${number}`
+type GhCode = 'gh_bad_token' | 'gh_no_access' | 'gh_not_found' | 'gh_conflict' | 'gh_offline' | 'gh_tree_truncated' | `gh_http_${number}`
 
 // message is the bare code: the token never reaches error text
 export class GitHubError extends Error {
@@ -55,8 +55,16 @@ export class GitHubPages {
   private async treePaths(headSha: string): Promise<{ treeSha: string; paths: string[] }> {
     const r = this.r()
     const treeSha = (await this.req('GET', `${r}/git/commits/${headSha}`)).json.tree.sha
-    const tree = (await this.req('GET', `${r}/git/trees/${treeSha}?recursive=1`)).json.tree as { path: string; type: string }[]
+    const res = (await this.req('GET', `${r}/git/trees/${treeSha}?recursive=1`)).json
+    // partial listing: publish/unpublish would miss files to delete
+    if (res.truncated) throw new GitHubError('gh_tree_truncated')
+    const tree = res.tree as { path: string; type: string }[]
     return { treeSha, paths: tree.filter((e) => e.type === 'blob').map((e) => e.path) }
+  }
+
+  /** 404 on the repo itself: it does not exist (or is hidden from the token). */
+  async exists(): Promise<boolean> {
+    return (await this.req('GET', this.r(), undefined, [404])).status !== 404
   }
 
   private put(path: string, content: string) {
@@ -78,7 +86,7 @@ export class GitHubPages {
       await this.req('POST', `${this.r()}/pages`, { source: { branch: 'main', path: '/' } }, [409])
       return 'ok'
     } catch (e) {
-      if (e instanceof GitHubError && e.code === 'gh_no_access') return 'manual'
+      if (e instanceof GitHubError && (e.code === 'gh_no_access' || e.code === 'gh_not_found')) return 'manual'
       throw e
     }
   }
@@ -139,8 +147,18 @@ export class GitHubPages {
   }
 
   async waitBuild(sha: string, sleep: SleepFn, timeoutMs = 180_000): Promise<'built' | 'errored' | 'timeout'> {
+    let fails = 0
     for (let elapsed = 0; ; elapsed += 10_000) {
-      const b = await this.req('GET', `${this.r()}/pages/builds/latest`, undefined, [404])
+      let b: Res
+      try {
+        b = await this.req('GET', `${this.r()}/pages/builds/latest`, undefined, [404])
+        fails = 0
+      } catch (e) {
+        // the commit is already pushed: a short GitHub hiccup should not fail the publish
+        const transient = e instanceof GitHubError && (e.code === 'gh_offline' || /^gh_http_5\d\d$/.test(e.code))
+        if (!transient || ++fails > 3) throw e
+        b = { status: 0, json: {} }
+      }
       if (b.json.commit === sha && b.json.status === 'built') return 'built'
       if (b.json.commit === sha && b.json.status === 'errored') return 'errored'
       if (elapsed >= timeoutMs) return 'timeout'

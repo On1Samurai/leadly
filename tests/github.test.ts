@@ -158,6 +158,29 @@ describe('enablePages', () => {
     expect((await run(409)).r).toBe('ok')
   })
   it('403 -> manual', async () => expect((await run(403)).r).toBe('manual'))
+  it('404 -> manual', async () => expect((await run(404)).r).toBe('manual'))
+})
+
+describe('exists', () => {
+  it('200 -> true, 404 -> false, other errors propagate', async () => {
+    expect(await gh(fakeGh({ json: { 'GET ': { permissions: { push: true } } } }).fetch).exists()).toBe(true)
+    expect(await gh(fakeGh().fetch).exists()).toBe(false)
+    await expect(gh(fakeGh({ status: { 'GET ': 500 } }).fetch).exists()).rejects.toMatchObject({ code: 'gh_http_500' })
+  })
+})
+
+describe('truncated tree', () => {
+  const big = (truncated: boolean) => fakeGh({ json: { 'GET /git/trees/t1': { tree: [{ path: 's-1/index.html', type: 'blob', sha: 'a' }], truncated } } })
+  it('publish and unpublish refuse a partial view: gh_tree_truncated, nothing written', async () => {
+    for (const op of [(p: GitHubPages) => p.publish('s-1', files, 'm'), (p: GitHubPages) => p.unpublish('s-1')]) {
+      const g = big(true)
+      await expect(op(gh(g.fetch))).rejects.toMatchObject({ code: 'gh_tree_truncated' })
+      expect(g.calls.some((c) => c.method !== 'GET')).toBe(false)
+    }
+  })
+  it('truncated: false is fine', async () => {
+    expect(await gh(big(false).fetch).unpublish('s-1')).toBeTruthy()
+  })
 })
 
 describe('check / login', () => {
@@ -219,6 +242,25 @@ describe('waitBuild', () => {
     let clock = 0
     expect(await gh(b.f).waitBuild('x', async (ms) => { clock += ms }, 30_000)).toBe('timeout')
     expect(clock).toBe(30_000)
+  })
+  const flaky = (seq: (number | 'offline' | object)[]) => {
+    let i = 0
+    const f = (async () => {
+      const s = seq[Math.min(i++, seq.length - 1)]
+      if (s === 'offline') throw new Error('net')
+      return typeof s === 'number' ? new Response('{}', { status: s }) : new Response(JSON.stringify(s), { status: 200 })
+    }) as unknown as typeof fetch
+    return f
+  }
+  it('tolerates up to 3 consecutive transient errors (5xx / offline)', async () => {
+    const f = flaky([502, 'offline', 500, { status: 'building', commit: 'x' }, 503, 503, 'offline', { status: 'built', commit: 'x' }])
+    expect(await gh(f).waitBuild('x', async () => {})).toBe('built')
+  })
+  it('4th consecutive transient error throws', async () => {
+    await expect(gh(flaky([500, 500, 'offline', 502])).waitBuild('x', async () => {})).rejects.toMatchObject({ code: 'gh_http_502' })
+  })
+  it('non-transient error throws at once', async () => {
+    await expect(gh(flaky([401])).waitBuild('x', async () => {})).rejects.toMatchObject({ code: 'gh_bad_token' })
   })
 })
 

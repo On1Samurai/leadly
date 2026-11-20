@@ -205,9 +205,10 @@ export class DemoService {
     // пункты с ценами и свои фото вводил пользователь: пересборка их не стирает
     const prev = old ? (JSON.parse(old.content) as DemoContent | null) : null
     const userPhotos = prev?.photos.filter((x) => x.source === 'user') ?? []
+    const phone = cutN(p.phoneE164, 50) // как в fitContent: ссылка tel: должна совпадать с показанным номером
     const content = fitContent({
       ...base, ...copy, hours: src.hours, items: prev?.items ?? [], photos: [...userPhotos, ...photos].slice(0, MAX_PHOTOS),
-      address: p.address, mapsUrl, phone: p.phoneE164, cta: defaultCta(demoKind, { phone: p.phoneE164, mapsUrl }),
+      address: p.address, mapsUrl, phone, cta: defaultCta(demoKind, { phone, mapsUrl }),
       showBadge: true, fromGoogle: src.fromGoogle
     })
     this.upsert(placeId, slug, 'template', src.fromGoogle ? 'google' : 'free', content)
@@ -328,6 +329,8 @@ export class DemoService {
       await gh.unpublish(slug)
     } catch (e) {
       if (!(e instanceof GitHubError && e.code === 'gh_not_found')) throw e
+      // 404 на запись при живом репозитории — у токена нет прав, сайт с телефоном остался в открытом доступе
+      if (await gh.exists()) throw new GitHubError('gh_no_access')
     }
   }
 
@@ -377,7 +380,11 @@ export class DemoService {
       const first = c?.photos[0]
       let cover: string | null = null
       if (first) {
-        try { cover = `data:image/jpeg;base64,${this.d.resizeImage(readDemoFile(this.root, r.slug, first.file), 600).toString('base64')}` } catch { /* нет файла: градиент */ }
+        try { cover = `data:image/jpeg;base64,${this.d.resizeImage(readDemoFile(this.root, r.slug, first.file), 600).toString('base64')}` } catch (e) {
+          // нет файла: градиент; прочие сбои тоже не мешают открыткам, но видны в логе (только код, без пути)
+          const code = (e as NodeJS.ErrnoException).code
+          if (code !== 'ENOENT') console.warn('postcard cover failed', code ?? (e as Error).name)
+        }
       }
       return { name: c?.name ?? this.place(r.place_id).name, qrUrl: `${worker.url}/${r.slug}`, headline: c?.headline ?? '', cover }
     })

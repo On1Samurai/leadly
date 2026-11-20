@@ -34,7 +34,7 @@ function fakeNet() {
   const commits: Record<string, string> = { c0: 't0' }
   let head = 'c0'
   let n = 0
-  const st = { offline: false, ghStatus: 0, health: `ok ${WORKER_VERSION}`, cfSub: 'me' as string | null, mediaFail: false, gate: null as Promise<void> | null, ghFail: '', wStatus: 0, details: {} as Record<string, unknown> }
+  const st = { offline: false, ghStatus: 0, health: `ok ${WORKER_VERSION}`, cfSub: 'me' as string | null, mediaFail: false, gate: null as Promise<void> | null, ghFail: '', ghFailStatus: 500, wStatus: 0, details: {} as Record<string, unknown> }
   const fetch = (async (url: string, o: RequestInit = {}) => {
     const method = o.method ?? 'GET'
     const isForm = o.body instanceof FormData
@@ -44,7 +44,7 @@ function fakeNet() {
     const u = new URL(url)
     if (u.host === 'api.github.com') {
       if (st.ghStatus) return reply(st.ghStatus)
-      if (st.ghFail && u.pathname.includes(st.ghFail)) return reply(500)
+      if (st.ghFail && `${method} ${u.pathname}`.includes(st.ghFail)) return reply(st.ghFailStatus)
       const p = u.pathname.replace(/^\/repos\/u\/leadly-demos/i, '')
       const key = `${method} ${p}`
       if (key === 'GET /user') return reply(200, { login: 'U' })
@@ -290,6 +290,27 @@ describe('demo service', () => {
     expect(net.calls.some((c) => c.method === 'DELETE' && c.url === `${WORKER}/api/targets/${slug}`)).toBe(true)
   })
 
+  it('remove: 404 on a write but the repo exists -> gh_no_access, place and demo kept', async () => {
+    setup()
+    const id = mk()
+    const { slug } = await build(id)
+    await h()['demo.publish'](ev, id)
+    net.st.ghFail = 'POST /repos/u/leadly-demos/git/trees'
+    net.st.ghFailStatus = 404
+    await expect(h()['places.remove'](ev, id)).rejects.toThrow('gh_no_access')
+    expect(getPlace(db, id)).not.toBeNull()
+    expect(db.prepare('SELECT 1 FROM demos WHERE place_id=?').get(id)).toBeTruthy()
+    expect(net.ghPaths()).toContain(`${slug}/index.html`)
+    await expect(h()['demo.unpublish'](ev, id)).rejects.toThrow('gh_no_access')
+  })
+
+  it('build: cta phone comes from the clamped phone', async () => {
+    const id = mk({ category: 'barber', phoneE164: '+7' + '1'.repeat(60) })
+    const v = await build(id)
+    expect(v.content!.phone).toHaveLength(50)
+    expect(v.content!.cta).toEqual({ kind: 'book', target: `tel:${v.content!.phone}` })
+  })
+
   it('remove: real GitHub / Worker error code, place kept', async () => {
     setup()
     const id = mk()
@@ -478,17 +499,22 @@ describe('demo service', () => {
 
   const left = async () => ((await h()['demo.budget'](ev)) as { left: number }).left
 
-  it('google budget: a failed photo still counts, repeated builds hit the limit', async () => {
+  it('google budget: a failed photo is skipped but still counts, repeated builds hit the limit', async () => {
     setSecret(db, 'google', 'GK', secretEnv)
     saveSettings(db, { demoGoogleDaily: 8 })
     const id = mk({ googlePlaceId: 'g1' })
     net.st.mediaFail = true
-    await expect(build(id)).rejects.toThrow('google_unavailable')
-    await expect(build(id)).rejects.toThrow('google_unavailable')
+    const v = await build(id)
+    expect(v.source).toBe('google')
+    expect(v.content!.photos).toEqual([])
+    expect(await left()).toBe(5) // Details + 2 failed photos
+    db.prepare('DELETE FROM place_details').run()
+    await build(id)
+    expect(await left()).toBe(2)
+    db.prepare('DELETE FROM place_details').run()
     const calls = googleCalls()
     await expect(build(id)).rejects.toThrow('demo_google_limit')
     expect(googleCalls()).toBe(calls)
-    expect(await left()).toBe(0)
   })
 
   it('google budget: concurrent builds reserve before fetching', async () => {

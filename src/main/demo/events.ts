@@ -39,11 +39,16 @@ export async function syncDemoEvents(
     const last = getSetting<Record<string, number>>(db, 'demo:lastOpenNotify', {})
     let touched = false
     for (const { slug, ...n } of fresh) {
+      const prev = last[slug]
       if (n.kind === 'open') {
-        if (now - (last[slug] ?? -Infinity) < OPEN_THROTTLE_MS) continue
+        if (now - (prev ?? -Infinity) < OPEN_THROTTLE_MS) continue
         last[slug] = now; touched = true
       }
-      try { await notify(n) } catch (e) { console.error('demo notify failed', (e as Error).name) }
+      try { await notify(n) } catch (e) {
+        console.error('demo notify failed', (e as Error).name)
+        // уведомление не ушло: слот не занят, следующее открытие уведомит
+        if (n.kind === 'open') { if (prev === undefined) delete last[slug]; else last[slug] = prev }
+      }
     }
     if (touched) {
       for (const k of Object.keys(last)) if (now - last[k] > THROTTLE_KEEP_MS) delete last[k]

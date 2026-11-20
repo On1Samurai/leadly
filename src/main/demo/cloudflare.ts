@@ -2,7 +2,7 @@ import type { FetchFn } from '../sources/http'
 import workerSource from '../../worker/worker.js?raw'
 import { SCHEMA_SQL, WORKER_VERSION } from '../../worker/worker.js'
 
-type CfCode = 'cf_bad_token' | 'cf_no_access' | 'cf_no_subdomain' | 'cf_offline' | `cf_http_${number}`
+type CfCode = 'cf_bad_token' | 'cf_no_access' | 'cf_no_subdomain' | 'cf_offline' | 'cf_bad_response' | `cf_http_${number}`
 
 // message is the bare code: the token never reaches error text
 export class CfError extends Error {
@@ -31,8 +31,12 @@ async function call(fetchFn: FetchFn, token: string, method: string, path: strin
     throw new CfError('cf_offline')
   }
   if (notFoundOk && res.status === 404) return null
-  const json: any = await res.json().catch(() => ({}))
-  if (res.ok && json.success !== false) return json.result
+  const json: any = (await res.json().catch(() => null)) ?? {}
+  if (res.ok && json.success !== false) {
+    // 2xx without the envelope (proxy page, truncated body): an error code, not a TypeError further on
+    if (json.result === undefined) throw new CfError('cf_bad_response')
+    return json.result
+  }
   const authCode = Array.isArray(json.errors) && json.errors.some((e: any) => e?.code === 10000)
   throw new CfError(
     res.status === 401 ? 'cf_bad_token' : res.status === 403 || authCode ? 'cf_no_access' : `cf_http_${res.status}`

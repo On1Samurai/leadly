@@ -95,6 +95,15 @@ describe('deployWorker', () => {
     for (const e of [e401, off]) expect(e.message).not.toContain(TOKEN)
   })
 
+  it('2xx with non-JSON body or without result -> cf_bad_response', async () => {
+    for (const body of ['<html>oops</html>', JSON.stringify({ success: true, errors: [] }), 'null']) {
+      const fetch = (async () => new Response(body, { status: 200 })) as unknown as typeof globalThis.fetch
+      const e = await deployWorker(fetch, TOKEN, 's').catch((x) => x)
+      expect(e).toBeInstanceOf(CfError)
+      expect(e.code).toBe('cf_bad_response')
+    }
+  })
+
   it('success:false with auth error code', async () => {
     const fetch = (async () =>
       new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: 'Authentication error' }], result: null }), { status: 200 })) as unknown as typeof globalThis.fetch

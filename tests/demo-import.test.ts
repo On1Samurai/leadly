@@ -62,6 +62,15 @@ describe('injectTracking', () => {
     expect(r.content.includes(cp)).toBe(true)
     expect(r.content.toString('latin1')).toContain('noindex')
   })
+  it('non-UTF-8 page: badge as numeric character references', () => {
+    const cp = Buffer.from([0xcf, 0xf0, 0xe8, 0xe2, 0xe5, 0xf2]) // «Привет» в cp1251
+    const src = Buffer.concat([Buffer.from('<head></head><body>'), cp, Buffer.from('</body>')])
+    const [r] = injectTracking([{ path: 'index.html', content: src }], links, true, 'ru')
+    const out = r.content.toString('latin1')
+    expect(out).toContain('<a href="https://w/">&#1057;&#1072;&#1081;&#1090; ')
+    expect(out).toContain('@nick&lt;</a></body>')
+    expect(r.content.every((b) => b < 0x80 || cp.includes(b))).toBe(true)
+  })
   it('no head: after body tag', () => {
     const [r] = injectTracking([f('index.html', '<body class="a">hi</body>')], links, false, 'ru')
     expect(r.content.toString()).toBe(`<body class="a">${meta}${pix}hi</body>`)

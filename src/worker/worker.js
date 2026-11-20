@@ -1,4 +1,4 @@
-export const WORKER_VERSION = '2'
+export const WORKER_VERSION = '3'
 
 export const SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS targets (slug TEXT PRIMARY KEY, url TEXT NOT NULL, tg TEXT);
 CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL);`
@@ -19,6 +19,7 @@ const page = (status, text) =>
   })
 const gone = () => page(410, 'Демо снято с публикации')
 const notFound = () => page(404, 'Не найдено')
+const unavailable = () => page(503, 'Демо временно недоступно, попробуйте позже')
 const redirect = (url) => new Response(null, { status: 302, headers: { Location: url } })
 
 function safeEqual(a, b) {
@@ -35,7 +36,19 @@ const track = (env, ctx, slug, kind) => {
   const p = Promise.resolve().then(() => addEvent(env, slug, kind)).then(() => undefined, () => undefined)
   return ctx && ctx.waitUntil ? ctx.waitUntil(p) : p
 }
-const getTarget = (env, slug) => env.DB.prepare('SELECT url, tg FROM targets WHERE slug = ?').bind(slug).first()
+const getTarget = async (env, slug) => env.DB.prepare('SELECT url, tg FROM targets WHERE slug = ?').bind(slug).first()
+const DOWN = Symbol('down')
+// D1 read outage: a page instead of a 500 with a stack
+const tryTarget = (env, slug) => getTarget(env, slug).catch(() => DOWN)
+// https only, and nothing URL parsing would silently strip or encode
+function goodUrl(u) {
+  if (typeof u !== 'string' || !u.startsWith('https://') || /[\s\u0000-\u001f\u007f]/.test(u)) return false
+  try {
+    return new URL(u).protocol === 'https:'
+  } catch {
+    return false
+  }
+}
 
 function isMine(referer) {
   try {
@@ -51,7 +64,7 @@ async function api(request, env, parts, url) {
 
   if (parts[1] === 'events' && parts.length === 2 && request.method === 'GET') {
     const raw = url.searchParams.get('since') ?? ''
-    if (!/^\d+$/.test(raw)) return new Response('bad since', { status: 400 })
+    if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw))) return new Response('bad since', { status: 400 })
     await env.DB.prepare('DELETE FROM events WHERE ts < ?').bind(Date.now() - RETENTION_MS).run()
     const { results } = await env.DB.prepare('SELECT id, slug, kind, ts FROM events WHERE id > ? ORDER BY id ASC LIMIT 500')
       .bind(Number(raw))
@@ -74,7 +87,7 @@ async function api(request, env, parts, url) {
       }
       const u = body && body.url
       const tg = body && body.tg
-      if (typeof u !== 'string' || !u.startsWith('https://') || typeof tg !== 'string' || !TG_RE.test(tg))
+      if (!goodUrl(u) || typeof tg !== 'string' || !TG_RE.test(tg))
         return new Response('bad body', { status: 400 })
       await env.DB.prepare('INSERT INTO targets (slug, url, tg) VALUES (?, ?, ?) ON CONFLICT(slug) DO UPDATE SET url = excluded.url, tg = excluded.tg')
         .bind(slug, u, tg)
@@ -100,19 +113,22 @@ export default {
     if (first === 'health' && parts.length === 1) return new Response(`ok ${WORKER_VERSION}`)
 
     if (first === 'o' && parts.length === 2 && SLUG_RE.test(second)) {
-      if (!isMine(request.headers.get('Referer') || '') && (await getTarget(env, second))) await track(env, ctx, second, 'open')
+      const t = isMine(request.headers.get('Referer') || '') ? null : await tryTarget(env, second)
+      if (t && t !== DOWN) await track(env, ctx, second, 'open')
       return new Response(GIF, { headers: { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store' } })
     }
 
     if (first === 'w' && parts.length === 2 && SLUG_RE.test(second)) {
-      const t = await getTarget(env, second)
+      const t = await tryTarget(env, second)
+      if (t === DOWN) return unavailable()
       if (!t || !t.tg) return gone()
       await track(env, ctx, second, 'want')
       return redirect(`https://t.me/${t.tg}`)
     }
 
     if (parts.length === 1 && SLUG_RE.test(first)) {
-      const t = await getTarget(env, first)
+      const t = await tryTarget(env, first)
+      if (t === DOWN) return unavailable()
       if (!t) return gone()
       await track(env, ctx, first, 'qr')
       return redirect(t.url)

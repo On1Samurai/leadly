@@ -1,7 +1,7 @@
 import type { Db } from '../db/db'
 import { getSetting } from '../db/repo'
 import { loadSettings } from '../settings'
-import { isNoReply, scorePlace, type History, type Priors } from '../core/scoring'
+import { isNoReply, scorePlace, type History, type Priors, type WeightKey } from '../core/scoring'
 import type { PhoneType, Status, WebClass } from '../../shared/types'
 
 export const REPLIED_NOW: Status[] = ['replied', 'demo_opened', 'call', 'deal']
@@ -57,6 +57,12 @@ export function rescore(db: Db, priors: Priors, scope: { categoryId: string; cit
 
 /** Веса обученной модели (settings 'model') или априорные, если модель не обучена. */
 export function modelWeights(db: Db, priors: Priors): { weights: Priors['weights']; trainedOn: number | null } {
-  const m = getSetting<{ weights: Priors['weights']; n: number } | null>(db, 'model', null)
-  return m ? { weights: m.weights, trainedOn: m.n } : { weights: priors.weights, trainedOn: null }
+  let m: unknown = null
+  try { m = getSetting<unknown>(db, 'model', null) } catch { /* битый JSON — как необученная модель */ }
+  const ok = (x: unknown): x is { weights: Priors['weights']; n: number } => {
+    const o = x as { weights?: Record<string, unknown>; n?: unknown } | null
+    return !!o && typeof o === 'object' && Number.isFinite(o.n) && !!o.weights && typeof o.weights === 'object' &&
+      (Object.keys(priors.weights) as WeightKey[]).every((k) => Number.isFinite(o.weights![k]))
+  }
+  return ok(m) ? { weights: m.weights, trainedOn: m.n } : { weights: priors.weights, trainedOn: null }
 }

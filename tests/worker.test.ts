@@ -139,8 +139,41 @@ describe('worker', () => {
     expect(waits.length).toBe(1)
     await expect(waits[0]).resolves.toBeUndefined()
   })
-  it('version 2', () => {
-    expect(WORKER_VERSION).toBe('2')
+  it('version 3', () => {
+    expect(WORKER_VERSION).toBe('3')
+  })
+  it('target read fails: qr and want 503 page, pixel still a GIF', async () => {
+    await put('s-1', { url: 'https://x.y/', tg: 'nick' })
+    const real = DB
+    env.DB = {
+      exec: real.exec,
+      prepare: (sql: string) => {
+        if (!sql.startsWith('SELECT url, tg FROM targets')) return real.prepare(sql)
+        const s: any = { bind: () => s, first: async () => { throw new Error('D1 down at /internal/stack') } }
+        return s
+      }
+    } as D1Like
+    for (const p of ['/s-1', '/w/s-1']) {
+      const r = await get(p)
+      expect(r.status).toBe(503)
+      expect(r.headers.get('Content-Type')).toBe('text/html; charset=utf-8')
+      const t = await r.text()
+      expect(t).toContain('Демо временно недоступно, попробуйте позже')
+      expect(t).not.toContain('internal')
+    }
+    const r = await get('/o/s-1')
+    expect(r.status).toBe(200)
+    expect(r.headers.get('Content-Type')).toBe('image/gif')
+    expect(await events()).toEqual([])
+  })
+  it('PUT url must parse as https without whitespace or control chars', async () => {
+    for (const url of ['https://', 'https://a b/', 'https://x.y/\n', 'https://x.y/\t', 'https://x.y/\u0000', ' https://x.y/', 'https:x'])
+      expect((await put('s-1', { url, tg: 'n' })).status, JSON.stringify(url)).toBe(400)
+    expect((await put('s-1', { url: 'https://x.y/a?b=1', tg: 'n' })).status).toBe(204)
+  })
+  it('events since must be a safe integer', async () => {
+    expect((await get('/api/events?since=99999999999999999999', { headers: auth })).status).toBe(400)
+    expect((await get('/api/events?since=9007199254740991', { headers: auth })).status).toBe(200)
   })
   it('health', async () => {
     expect(await (await get('/health')).text()).toBe(`ok ${WORKER_VERSION}`)

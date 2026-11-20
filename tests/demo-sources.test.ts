@@ -49,6 +49,33 @@ describe('fetchGoogleDemo', () => {
     await expect(fetchGoogleDemo('g1', 'KEY', mkFetch([], () => json({}, 403)), 'ru')).rejects.toThrow('google_auth')
     await expect(fetchGoogleDemo('g1', 'KEY', mkFetch([], () => json({}, 500)), 'ru')).rejects.toThrow('google_unavailable')
   })
+  it('битый JSON → google_unavailable, а не TypeError/SyntaxError', async () => {
+    for (const body of ['null', 'not json', '"str"']) {
+      const f = mkFetch([], () => new Response(body))
+      await expect(fetchGoogleDemo('g1', 'KEY', f, 'ru')).rejects.toThrow(/^google_unavailable$/)
+      await expect(matchGoogle({ name: 'x', lat: 0, lon: 0 } as Place, 'K', f, 'ru')).rejects.toThrow(/^google_unavailable$/)
+    }
+  })
+  it('null в массивах пропускаются, отзывы без текста выброшены', async () => {
+    const body = {
+      regularOpeningHours: { weekdayDescriptions: [null, 'Пн'] },
+      reviews: [null, { text: { text: '' } }, { text: { text: '  ' } }, { originalText: { text: 'ok' }, rating: 4 }],
+      photos: [null, { name: 'places/g1/photos/p1' }]
+    }
+    const r = await fetchGoogleDemo('g1', 'KEY', mkFetch([], (u) => u.includes('/media') ? new Response(Buffer.from([1])) : json(body)), 'ru')
+    expect(r.hours).toEqual(['Пн'])
+    expect(r.reviews).toEqual([{ author: '', text: 'ok', rating: 4, on: true }])
+    expect(r.photos).toHaveLength(1)
+    expect(r.requests).toBe(2)
+    const m = await matchGoogle({ name: 'x', lat: 0, lon: 0 } as Place, 'K', mkFetch([], () => json({ places: [null, { id: 'g', location: { latitude: 0, longitude: 0 } }] })), 'ru')
+    expect(m?.googleId).toBe('g')
+  })
+  it('упавшее фото пропущено, но считается в requests', async () => {
+    const calls: Call[] = []
+    const r = await fetchGoogleDemo('g1', 'KEY', mkFetch(calls, (u) => u.includes('p1/media') ? json({}, 500) : route(u)), 'ru')
+    expect(r.photos.map((p) => p.author)).toEqual(['Боб'])
+    expect(r.requests).toBe(3)
+  })
 })
 
 describe('matchGoogle', () => {
@@ -90,5 +117,14 @@ describe('freeDemo / cachedDetails', () => {
     const r = cachedDetails(db, 1, 1000 + 30 * 86_400_000)
     expect(r?.photoFiles).toEqual([{ file: 'img/1.jpg', author: 'A' }])
     expect(cachedDetails(db, 1, 1001 + 30 * 86_400_000)).toBeNull()
+  })
+  it('битый JSON в кэше → null', () => {
+    db.prepare("INSERT INTO cities(id,name,country,bbox,created_at) VALUES (1,'T','BY','{}',0)").run()
+    db.prepare("INSERT INTO places(id,city_id,name,category,lat,lon,created_at) VALUES (1,1,'P','cafe',0,0,0)").run()
+    db.prepare('INSERT INTO place_details(place_id,hours,reviews,photos,summary,fetched_at) VALUES (1,?,?,?,?,?)')
+      .run('["h"]', '{oops', '[]', 's', 1000)
+    expect(cachedDetails(db, 1, 1000)).toBeNull()
+    db.prepare('UPDATE place_details SET reviews=?, photos=? WHERE place_id=1').run('[]', '{"a":1}')
+    expect(cachedDetails(db, 1, 1000)).toBeNull()
   })
 })

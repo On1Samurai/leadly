@@ -95,6 +95,12 @@ function splice(buf: Buffer, at: number, snippet: string): Buffer {
   return Buffer.concat([buf.subarray(0, at), Buffer.from(snippet, 'utf8'), buf.subarray(at)])
 }
 
+const isUtf8 = (b: Buffer): boolean => {
+  try { new TextDecoder('utf-8', { fatal: true }).decode(b); return true } catch { return false }
+}
+// numeric character references render the same in any charset
+const ncr = (s: string): string => s.replace(/[^\x00-\x7f]/gu, (c) => `&#${c.codePointAt(0)};`)
+
 export function injectTracking(files: ImportedFile[], links: DemoLinks, badge: boolean, lang: 'ru' | 'uk'): ImportedFile[] {
   const track =
     '<meta name="robots" content="noindex,nofollow">' +
@@ -108,7 +114,7 @@ export function injectTracking(files: ImportedFile[], links: DemoLinks, badge: b
     buf = splice(buf, head ? head.index : body ? body.index + body[0].length : 0, track)
     if (badge) {
       const end = /<\/body>/i.exec(buf.toString('latin1'))
-      buf = splice(buf, end ? end.index : buf.length, badgeHtml)
+      buf = splice(buf, end ? end.index : buf.length, isUtf8(f.content) ? badgeHtml : ncr(badgeHtml))
     }
     return { path: f.path, content: buf }
   })

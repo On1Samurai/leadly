@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDb, type Db } from '../src/main/db/db'
-import { getSetting, insertPlace } from '../src/main/db/repo'
+import { getSetting, insertPlace, setSetting } from '../src/main/db/repo'
 import { fitWeights, modelWeights, rescoreAll, trainModel, type Sample } from '../src/main/core/logreg'
 import { logit, type WeightKey } from '../src/main/core/scoring'
 import { Scheduler, noreplyRescore, type Handlers } from '../src/main/scheduler'
@@ -82,6 +82,24 @@ describe('trainModel', () => {
     expect(d.modelTrainedOn).toBe(30)
     expect(d.score.p).not.toBeCloseTo(before, 3)
     expect(modelWeights(db, PRIORS).trainedOn).toBe(30)
+  })
+})
+
+describe('modelWeights validation', () => {
+  it('malformed model row -> priors, trainedOn null', () => {
+    const full = { ...PRIORS.weights }
+    const { web_none: _, ...missing } = full
+    for (const bad of [
+      'oops', 42, [], { n: 30 }, { weights: missing, n: 30 }, { weights: { ...full, rating_lt4: '1' }, n: 30 },
+      { weights: { ...full, web_none: null }, n: 30 }, { weights: full, n: '30' }, { weights: full }, { weights: { ...full, phone_fixed: Infinity }, n: 30 }
+    ]) {
+      setSetting(db, 'model', bad)
+      expect(modelWeights(db, PRIORS), JSON.stringify(bad)).toEqual({ weights: PRIORS.weights, trainedOn: null })
+    }
+    db.prepare("UPDATE settings SET value='{broken' WHERE key='model'").run()
+    expect(modelWeights(db, PRIORS)).toEqual({ weights: PRIORS.weights, trainedOn: null })
+    setSetting(db, 'model', { weights: full, n: 30 })
+    expect(modelWeights(db, PRIORS)).toEqual({ weights: full, trainedOn: 30 })
   })
 })
 
