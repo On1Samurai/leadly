@@ -117,10 +117,9 @@ describe('syncDemoEvents', () => {
     expect(getSetting(db, 'demo:cursor', 0)).toBe(500)
   })
   it('todayView.wanted: want within 7 days, not deal', async () => {
-    const a = mkDemo('a'), b = mkDemo('b', 'deal'), c = mkDemo('c')
+    const a = mkDemo('a'); mkDemo('b', 'deal'); mkDemo('c')
     await run(api([ev(1, 'a', 'want', 1000), ev(2, 'b', 'want', 1000), ev(3, 'c', 'open', 1000)])).p
     expect(todayView(db, 2000, 6).wanted.map((p) => p.id)).toEqual([a])
     expect(todayView(db, 8 * 86_400_000, 6).wanted).toEqual([])
-    void c
   })
 })
