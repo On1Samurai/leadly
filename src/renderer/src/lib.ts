@@ -24,6 +24,7 @@ const CODE_ERRORS: Record<string, string> = {
   gh_no_repo: 'Репозиторий GitHub не настроен',
   gh_repo_locked: 'Сначала снимите с публикации все демо — иначе они останутся в старом репозитории',
   gh_pages_off: 'GitHub Pages не включён',
+  gh_no_branch: 'В репозитории нет ветки main — нажмите «Настроить GitHub»',
   gh_tree_truncated: 'Репозиторий слишком большой — создайте новый для демо',
   gh_build_failed: 'GitHub не собрал сайт — повторите',
   gh_build_timeout: 'GitHub не собрал сайт за 3 минуты — повторите',

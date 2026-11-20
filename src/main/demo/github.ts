@@ -1,6 +1,6 @@
 import type { FetchFn, SleepFn } from '../sources/http'
 
-type GhCode = 'gh_bad_token' | 'gh_no_access' | 'gh_not_found' | 'gh_conflict' | 'gh_offline' | 'gh_tree_truncated' | `gh_http_${number}`
+type GhCode = 'gh_bad_token' | 'gh_no_access' | 'gh_not_found' | 'gh_conflict' | 'gh_offline' | 'gh_tree_truncated' | 'gh_no_branch' | `gh_http_${number}`
 
 // message is the bare code: the token never reaches error text
 export class GitHubError extends Error {
@@ -52,14 +52,22 @@ export class GitHubPages {
     return (await this.req('GET', '/user')).json.login
   }
 
+  // 2xx with an unexpected body: an error code, not a TypeError further on
+  private bad(res: Res): never {
+    throw new GitHubError(`gh_http_${res.status}`)
+  }
+
   private async treePaths(headSha: string): Promise<{ treeSha: string; paths: string[] }> {
     const r = this.r()
-    const treeSha = (await this.req('GET', `${r}/git/commits/${headSha}`)).json.tree.sha
-    const res = (await this.req('GET', `${r}/git/trees/${treeSha}?recursive=1`)).json
+    const c = await this.req('GET', `${r}/git/commits/${headSha}`)
+    const treeSha = c.json?.tree?.sha
+    if (typeof treeSha !== 'string') this.bad(c)
+    const t = await this.req('GET', `${r}/git/trees/${treeSha}?recursive=1`)
+    if (!Array.isArray(t.json?.tree)) this.bad(t)
     // partial listing: publish/unpublish would miss files to delete
-    if (res.truncated) throw new GitHubError('gh_tree_truncated')
-    const tree = res.tree as { path: string; type: string }[]
-    return { treeSha, paths: tree.filter((e) => e.type === 'blob').map((e) => e.path) }
+    if (t.json.truncated) throw new GitHubError('gh_tree_truncated')
+    const tree = t.json.tree as ({ path?: unknown; type?: unknown } | null)[]
+    return { treeSha, paths: tree.filter((e) => e?.type === 'blob' && typeof e.path === 'string').map((e) => e!.path as string) }
   }
 
   /** 404 on the repo itself: it does not exist (or is hidden from the token). */
@@ -78,7 +86,9 @@ export class GitHubPages {
       await this.put('index.html', INDEX)
       return
     }
-    if (!(await this.treePaths(ref.json.object.sha)).paths.includes('robots.txt')) await this.put('robots.txt', ROBOTS)
+    const head = ref.json?.object?.sha
+    if (typeof head !== 'string') this.bad(ref)
+    if (!(await this.treePaths(head)).paths.includes('robots.txt')) await this.put('robots.txt', ROBOTS)
   }
 
   async enablePages(): Promise<'ok' | 'manual'> {
@@ -109,7 +119,11 @@ export class GitHubPages {
   private async commit(msg: string, build: (existing: string[]) => Promise<TreeEntry[] | null>): Promise<string | null> {
     const r = this.r()
     for (let attempt = 0; ; attempt++) {
-      const head = (await this.req('GET', `${r}/git/ref/heads/main`)).json.object.sha as string
+      const ref = await this.req('GET', `${r}/git/ref/heads/main`, undefined, [404])
+      // 404 on the ref of a live repo: main is gone, not the repo
+      if (ref.status === 404) throw new GitHubError((await this.exists()) ? 'gh_no_branch' : 'gh_not_found')
+      const head = ref.json?.object?.sha
+      if (typeof head !== 'string') this.bad(ref)
       const { treeSha, paths } = await this.treePaths(head)
       const entries = await build(paths)
       if (!entries) return null

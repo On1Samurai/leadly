@@ -323,6 +323,18 @@ describe('demo service', () => {
     expect(db.prepare('SELECT 1 FROM place_details WHERE place_id=?').get(orphan)).toBeUndefined()
   })
 
+  it('remove: repo exists but main branch is gone -> gh_no_branch, place kept', async () => {
+    setup()
+    const id = mk()
+    await build(id)
+    await h()['demo.publish'](ev, id)
+    net.st.ghFail = 'GET /repos/u/leadly-demos/git/ref/heads/main'
+    net.st.ghFailStatus = 404
+    await expect(h()['places.remove'](ev, id)).rejects.toThrow('gh_no_branch')
+    expect(getPlace(db, id)).not.toBeNull()
+    expect(db.prepare('SELECT 1 FROM demos WHERE place_id=?').get(id)).toBeTruthy()
+  })
+
   it('build: cta phone comes from the clamped phone', async () => {
     const id = mk({ category: 'barber', phoneE164: '+7' + '1'.repeat(60) })
     const v = await build(id)

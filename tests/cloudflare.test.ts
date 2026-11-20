@@ -6,7 +6,7 @@ import { SCHEMA_SQL, WORKER_VERSION } from '../src/worker/worker.js'
 const TOKEN = 'cf_SECRETTOKEN123'
 type Call = { method: string; path: string; body?: any; form?: FormData; headers: Record<string, string> }
 
-function fakeCf(o: { d1?: any[]; sub?: string | null; accounts?: any[]; status?: Record<string, number>; offline?: boolean } = {}) {
+function fakeCf(o: { create?: unknown; d1?: any; sub?: string | null; accounts?: any[]; status?: Record<string, number>; offline?: boolean } = {}) {
   const calls: Call[] = []
   const ok = (result: unknown, status = 200) => new Response(JSON.stringify({ success: true, errors: [], result }), { status })
   const fetch = (async (url: string, init: RequestInit = {}) => {
@@ -26,7 +26,7 @@ function fakeCf(o: { d1?: any[]; sub?: string | null; accounts?: any[]; status?:
     if (key === 'GET /accounts') return ok(o.accounts ?? [{ id: 'acc1' }, { id: 'acc2' }])
     if (key === 'GET /workers/subdomain') return o.sub === null ? ok(null) : ok({ subdomain: o.sub ?? 'me' })
     if (key === 'GET /d1/database') return ok(o.d1 ?? [])
-    if (key === 'POST /d1/database') return ok({ uuid: 'new-db' })
+    if (key === 'POST /d1/database') return ok('create' in o ? o.create : { uuid: 'new-db' })
     if (key.startsWith('POST /d1/database/') && key.endsWith('/query')) return ok([])
     if (key === 'PUT /workers/scripts/leadly-demos') return ok({})
     if (key === 'POST /workers/scripts/leadly-demos/subdomain') return ok({ enabled: true })
@@ -93,6 +93,14 @@ describe('deployWorker', () => {
     const off = await run({ offline: true })
     expect(off.code).toBe('cf_offline')
     for (const e of [e401, off]) expect(e.message).not.toContain(TOKEN)
+  })
+
+  it('D1 list not an array or create without uuid -> cf_bad_response', async () => {
+    for (const o of [{ d1: {} }, { d1: 'x' }, { d1: [null], create: null }, { create: null }, { create: {} }, { create: { uuid: 5 } }]) {
+      const e = await deployWorker(fakeCf(o).fetch, TOKEN, 's').catch((x) => x)
+      expect(e, JSON.stringify(o)).toBeInstanceOf(CfError)
+      expect(e.code).toBe('cf_bad_response')
+    }
   })
 
   it('2xx with non-JSON body or without result -> cf_bad_response', async () => {

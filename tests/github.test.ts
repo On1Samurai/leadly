@@ -169,6 +169,36 @@ describe('exists', () => {
   })
 })
 
+describe('bad 2xx bodies', () => {
+  const nullAt = (suffix: string) => {
+    const g = fakeGh({ tree: [{ path: 's-1/index.html', type: 'blob', sha: 'a' }] })
+    return (async (url: string, o?: RequestInit) =>
+      new URL(url).pathname.endsWith(suffix) ? new Response('null', { status: 200 }) : g.fetch(url, o)) as unknown as typeof fetch
+  }
+  it('null body or missing tree/sha -> gh_http_200, never TypeError', async () => {
+    const fetches = [
+      nullAt('/git/commits/c1'), nullAt('/git/trees/t1'), nullAt('/git/ref/heads/main'),
+      fakeGh({ status: { 'GET /git/commits/c1': 200 } }).fetch, // empty body: no tree.sha
+      fakeGh({ json: { 'GET /git/trees/t1': { sha: 't1' } } }).fetch // no tree array
+    ]
+    for (const f of fetches) {
+      const e = await gh(f).unpublish('s-1').catch((x) => x)
+      expect(e).toBeInstanceOf(GitHubError)
+      expect(e.code).toBe('gh_http_200')
+    }
+  })
+})
+
+describe('missing main branch', () => {
+  it('ref 404 + repo 200 -> gh_no_branch; ref 404 + repo 404 -> gh_not_found', async () => {
+    const branchless = fakeGh({ status: { 'GET /git/ref/heads/main': 404 }, json: { 'GET ': { permissions: { push: true } } } })
+    await expect(gh(branchless.fetch).unpublish('s-1')).rejects.toMatchObject({ code: 'gh_no_branch' })
+    await expect(gh(branchless.fetch).publish('s-1', files, 'm')).rejects.toMatchObject({ code: 'gh_no_branch' })
+    const gone = fakeGh({ status: { 'GET /git/ref/heads/main': 404 } })
+    await expect(gh(gone.fetch).unpublish('s-1')).rejects.toMatchObject({ code: 'gh_not_found' })
+  })
+})
+
 describe('truncated tree', () => {
   const big = (truncated: boolean) => fakeGh({ json: { 'GET /git/trees/t1': { tree: [{ path: 's-1/index.html', type: 'blob', sha: 'a' }], truncated } } })
   it('publish and unpublish refuse a partial view: gh_tree_truncated, nothing written', async () => {

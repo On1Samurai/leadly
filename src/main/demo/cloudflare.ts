@@ -54,8 +54,11 @@ export async function deployWorker(fetchFn: FetchFn, token: string, secret: stri
   const sub = (await c('GET', `${a}/workers/subdomain`, undefined, true))?.subdomain
   if (!sub) throw new CfError('cf_no_subdomain')
 
-  const found = ((await c('GET', `${a}/d1/database?name=${NAME}`)) ?? []).find((d: any) => d.name === NAME)
-  const d1Id: string = found?.uuid ?? (await c('POST', `${a}/d1/database`, { name: NAME })).uuid
+  const list = await c('GET', `${a}/d1/database?name=${NAME}`)
+  if (!Array.isArray(list)) throw new CfError('cf_bad_response')
+  const found = list.find((d: any) => d?.name === NAME)
+  const d1Id: unknown = found?.uuid ?? (await c('POST', `${a}/d1/database`, { name: NAME }))?.uuid
+  if (typeof d1Id !== 'string' || !d1Id) throw new CfError('cf_bad_response')
   await c('POST', `${a}/d1/database/${d1Id}/query`, { sql: SCHEMA_SQL })
 
   const form = new FormData()
