@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stage2Deps } from './helpers/deps'
 import { licensed } from './helpers/license'
 import { openDb, type Db } from '../src/main/db/db'
-import { getPlace, getSetting, insertPlace, setSetting } from '../src/main/db/repo'
+import { deletePlaceForever, getPlace, getSetting, insertPlace, setSetting } from '../src/main/db/repo'
 import { buildHandlers, type IpcDeps } from '../src/main/ipc/handlers'
 import { AuditQueue } from '../src/main/audit/queue'
 import { getWorkerSecret, setSecret, setWorkerSecret, type SecretEnv } from '../src/main/secrets'
@@ -33,7 +33,7 @@ function fakeNet() {
   const commits: Record<string, string> = { c0: 't0' }
   let head = 'c0'
   let n = 0
-  const st = { offline: false, ghStatus: 0, health: `ok ${WORKER_VERSION}`, cfSub: 'me' as string | null }
+  const st = { offline: false, ghStatus: 0, health: `ok ${WORKER_VERSION}`, cfSub: 'me' as string | null, mediaFail: false, gate: null as Promise<void> | null }
   const fetch = (async (url: string, o: RequestInit = {}) => {
     const method = o.method ?? 'GET'
     const isForm = o.body instanceof FormData
@@ -70,7 +70,8 @@ function fakeNet() {
       return reply(404)
     }
     if (u.host === 'places.googleapis.com') {
-      if (u.pathname.endsWith('/media')) return new Response(Buffer.from([0xff, 0xd8, 1]))
+      if (st.gate) await st.gate
+      if (u.pathname.endsWith('/media')) return st.mediaFail ? reply(500) :  new Response(Buffer.from([0xff, 0xd8, 1]))
       return reply(200, {
         regularOpeningHours: { weekdayDescriptions: ['Пн: 09:00–21:00'] },
         reviews: [{ text: { text: 'Вкусно' }, rating: 5, authorAttribution: { displayName: 'Аня' } }],
@@ -98,12 +99,14 @@ function fakeNet() {
 
 describe('demo service', () => {
   let dir: string, db: Db, net: ReturnType<typeof fakeNet>, opened: string[], pub: string | undefined, dialog: string | null
+  let factory: IpcDeps['anthropicFactory']
   const now = new Date(2026, 10, 15, 12, 0).getTime()
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'll-demo-')); db = openDb(join(dir, 't.db'))
     db.prepare("INSERT INTO cities(id,name,country,bbox,created_at) VALUES (1,'T','BY','{}',0)").run()
     net = fakeNet(); opened = []; dialog = null
+    factory = () => { throw new Error('unused') }
     pub = licensed(db)
   })
   afterEach(() => { db.close(); rmSync(dir, { recursive: true, force: true }) })
@@ -111,7 +114,7 @@ describe('demo service', () => {
   const h = () => buildHandlers({
     db, secretEnv, userDataDir: dir, auditQueue: new AuditQueue(1, async () => undefined),
     now: () => now, rng: Math.random, osm: async () => [], saveDialog: async () => null,
-    anthropicFactory: () => { throw new Error('unused') }, ...stage2Deps,
+    anthropicFactory: (k) => factory(k), ...stage2Deps,
     fetch: net.fetch, resizeImage: (b) => Buffer.concat([Buffer.from('R'), b]), openDialog: async () => dialog,
     openExternal: async (u) => { opened.push(u) }, writeClipboard: () => undefined,
     licensePublicKey: pub
@@ -367,6 +370,127 @@ describe('demo service', () => {
     const s = (await h()['demo.setupGithub'](ev)) as SetupState
     expect(getSetting(db, 'demo:github', null)).toEqual({ owner: 'U', repo: 'leadly-demos' })
     expect(s.github).toMatchObject({ ok: true, owner: 'U', repo: 'leadly-demos' })
+  })
+
+  const left = async () => ((await h()['demo.budget'](ev)) as { left: number }).left
+
+  it('google budget: a failed photo still counts, repeated builds hit the limit', async () => {
+    setSecret(db, 'google', 'GK', secretEnv)
+    saveSettings(db, { demoGoogleDaily: 8 })
+    const id = mk({ googlePlaceId: 'g1' })
+    net.st.mediaFail = true
+    await expect(build(id)).rejects.toThrow('google_unavailable')
+    await expect(build(id)).rejects.toThrow('google_unavailable')
+    const calls = googleCalls()
+    await expect(build(id)).rejects.toThrow('demo_google_limit')
+    expect(googleCalls()).toBe(calls)
+    expect(await left()).toBe(0)
+  })
+
+  it('google budget: concurrent builds reserve before fetching', async () => {
+    setSecret(db, 'google', 'GK', secretEnv)
+    saveSettings(db, { demoGoogleDaily: 4 })
+    const a = mk({ googlePlaceId: 'g1' })
+    const b = mk({ googlePlaceId: 'g2', name: 'Другое' })
+    const hh = h()
+    const r = await Promise.allSettled([hh['demo.build'](ev, a, { source: 'auto' }), hh['demo.build'](ev, b, { source: 'auto' })])
+    expect(r[0].status).toBe('fulfilled')
+    expect(r[1]).toMatchObject({ status: 'rejected', reason: { message: 'demo_google_limit' } })
+    expect(await left()).toBe(1) // 4 зарезервировано, 3 потрачено, 1 возвращён
+  })
+
+  it('match reserves one paid request', async () => {
+    setSecret(db, 'google', 'GK', secretEnv)
+    saveSettings(db, { demoGoogleDaily: 0 })
+    await expect(h()['demo.match'](ev, mk())).rejects.toThrow('demo_google_limit')
+    expect(googleCalls()).toBe(0)
+  })
+
+  it('rewrite asks AI again instead of the cache', async () => {
+    saveSettings(db, { llmProvider: 'anthropic' })
+    setSecret(db, 'anthropic', 'AK', secretEnv)
+    const heads = ['Первый', 'Второй', 'Третий']
+    let n = 0
+    factory = () => ({ beta: { messages: { create: async () => ({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: JSON.stringify({ headline: heads[n++], subhead: 'Кофе рядом', about: 'Хорошее место.' }) }]
+    }) } } }) as never
+    const id = mk()
+    expect((await build(id)).content!.headline).toBe('Первый')
+    const a = (await h()['demo.rewrite'](ev, id)) as DemoContent
+    const b = (await h()['demo.rewrite'](ev, id)) as DemoContent
+    expect([a.headline, b.headline]).toEqual(['Второй', 'Третий'])
+    expect(((await h()['demo.get'](ev, id)) as DemoView).content!.headline).toBe('Третий')
+  })
+
+  it('rebuild keeps user photos first, then Google ones', async () => {
+    setSecret(db, 'google', 'GK', secretEnv)
+    const id = mk({ googlePlaceId: 'g1' })
+    await build(id)
+    dialog = join(dir, 'pic.jpg')
+    writeFileSync(dialog, 'PIC')
+    await h()['demo.photoAdd'](ev, id)
+    const v = await build(id)
+    expect(v.content!.photos.map((p) => `${p.file}:${p.source}`)).toEqual(['img/3.jpg:user', 'img/1.jpg:google', 'img/2.jpg:google'])
+  })
+
+  it('places.remove during the first build is refused', async () => {
+    setSecret(db, 'google', 'GK', secretEnv)
+    const id = mk({ googlePlaceId: 'g1' })
+    let release!: () => void
+    net.st.gate = new Promise((r) => { release = r })
+    const hh = h()
+    const p = hh['demo.build'](ev, id, { source: 'auto' })
+    await expect(hh['places.remove'](ev, id)).rejects.toThrow('demo_busy')
+    release()
+    await p
+    expect(getPlace(db, id)).not.toBeNull()
+  })
+
+  it('place deleted while build waits: not_found, no row or folder', async () => {
+    setSecret(db, 'google', 'GK', secretEnv)
+    const id = mk({ googlePlaceId: 'g1' })
+    let release!: () => void
+    net.st.gate = new Promise((r) => { release = r })
+    const p = build(id)
+    await new Promise((r) => setTimeout(r, 0))
+    deletePlaceForever(db, id)
+    release()
+    await expect(p).rejects.toThrow('not_found')
+    expect(db.prepare('SELECT COUNT(*) AS n FROM demos').get()).toEqual({ n: 0 })
+    expect(existsSync(join(dir, 'demos')) ? readdirSync(join(dir, 'demos')) : []).toEqual([])
+  })
+
+  it('stale publishing after a crash becomes error interrupted', async () => {
+    const id = mk()
+    await build(id)
+    db.prepare("UPDATE demos SET status='publishing'").run()
+    const v = (await h()['demo.get'](ev, id)) as DemoView
+    expect(v).toMatchObject({ status: 'error', error: 'interrupted' })
+  })
+
+  it('confirmed googleId is stored on the place unless another place has it', async () => {
+    setSecret(db, 'google', 'GK', secretEnv)
+    const a = mk()
+    await build(a, { source: 'auto', googleId: 'g1' })
+    expect(getPlace(db, a)!.googlePlaceId).toBe('g1')
+    const b = mk({ name: 'Другое' })
+    expect((await build(b, { source: 'auto', googleId: 'g1' })).source).toBe('google')
+    expect(getPlace(db, b)!.googlePlaceId).toBeNull()
+  })
+
+  it('import badge toggle goes into the published html', async () => {
+    setup()
+    const id = mk()
+    dialog = join(dir, 'site.html')
+    writeFileSync(dialog, '<html><head></head><body>hi</body></html>')
+    expect(((await h()['demo.importSite'](ev, id, 'html')) as DemoView).importBadge).toBe(false)
+    const html = () => net.calls.filter((c) => c.url.endsWith('/git/blobs')).map((c) => Buffer.from(c.body.content, 'base64').toString()).at(-1)!
+    await h()['demo.publish'](ev, id)
+    expect(html()).not.toContain('@mynick')
+    expect(((await h()['demo.setImportBadge'](ev, id, true)) as DemoView).importBadge).toBe(true)
+    await h()['demo.publish'](ev, id)
+    expect(html()).toContain('@mynick')
   })
 
   it('postcard is a stub for now', async () => {

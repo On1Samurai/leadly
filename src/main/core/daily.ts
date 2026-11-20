@@ -39,3 +39,10 @@ export function demoGoogleLeft(db: Db, now: number, limit: number): number {
   const cur = getSetting<{ date: string; n: number }>(db, 'demoGoogle', { date: '', n: 0 })
   return Math.max(0, limit - (cur.date === localDate(now) ? cur.n : 0))
 }
+
+/** Возвращает неиспользованный резерв (не ниже 0) за локальную дату. */
+export function refundDemoGoogle(db: Db, now: number, n: number): void {
+  const date = localDate(now)
+  const cur = getSetting<{ date: string; n: number }>(db, 'demoGoogle', { date, n: 0 })
+  if (cur.date === date) setSetting(db, 'demoGoogle', { date, n: Math.max(0, cur.n - n) })
+}

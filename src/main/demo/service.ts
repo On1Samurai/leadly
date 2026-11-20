@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs'
 import type { DemoContent, DemoPhoto, DemoSource, DemoStatus, DemoView, SetupState } from '../../shared/demo/types'
 import type { Place } from '../../shared/types'
-import { demoGoogleLeft, takeDemoGoogle } from '../core/daily'
-import { getPlace } from '../db/repo'
+import { demoGoogleLeft, refundDemoGoogle, takeDemoGoogle } from '../core/daily'
+import { getPlace, updatePlace } from '../db/repo'
 import { CATEGORIES } from '../ipc/data'
 import type { IpcDeps } from '../ipc/define'
-import { askerFor } from '../ipc/places'
+import { askerFor } from '../llm/asker'
 import { requireLicense } from '../license'
 import { getSecret } from '../secrets'
 import { loadSettings } from '../settings'
@@ -21,7 +21,7 @@ import { freeDemo } from './sources/free'
 
 interface Row {
   id: number; place_id: number; slug: string; kind: 'template' | 'import'; source: DemoSource; content: string
-  status: DemoStatus; url: string | null; commit_sha: string | null; published_at: number | null; error: string | null
+  status: DemoStatus; url: string | null; commit_sha: string | null; published_at: number | null; error: string | null; badge: number
 }
 type RowPatch = Partial<Pick<Row, 'status' | 'url' | 'commit_sha' | 'published_at' | 'error'>>
 
@@ -29,9 +29,12 @@ const MAX_PHOTOS = 20
 const mapsFallback = (p: Place): string => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}`
 
 export class DemoService {
-  /** placeId, по которым идёт публикация или снятие. */
+  /** placeId, по которым идёт сборка, импорт, публикация, снятие или удаление. */
   private busy = new Set<number>()
-  constructor(private d: IpcDeps) {}
+  constructor(private d: IpcDeps) {
+    // публикация оборвалась вместе с программой: сайт мог успеть выйти, error снимается при удалении места
+    d.db.prepare("UPDATE demos SET status='error', error='interrupted' WHERE status='publishing'").run()
+  }
 
   private get root(): string { return this.d.userDataDir }
   private license(): void { requireLicense(this.d.db, this.d.now(), this.d.licensePublicKey) }
@@ -82,7 +85,7 @@ export class DemoService {
     }
     return {
       placeId: r.place_id, slug: r.slug, kind: r.kind, source: r.source, content: JSON.parse(r.content), status: r.status,
-      url: r.url, publishedAt: r.published_at, error: r.error, counts
+      url: r.url, publishedAt: r.published_at, error: r.error, counts, importBadge: r.badge === 1
     }
   }
 
@@ -109,50 +112,44 @@ export class DemoService {
     const key = getSecret(this.d.db, 'google', this.d.secretEnv)
     if (!key) throw new Error('no_google_key')
     const s = loadSettings(this.d.db)
-    if (!takeDemoGoogle(this.d.db, this.d.now(), 1, s.demoGoogleDaily)) throw new Error('demo_google_limit')
+    if (!takeDemoGoogle(this.d.db, this.d.now(), 1, s.demoGoogleDaily)) throw new Error('demo_google_limit') // резерв до запроса
     return matchGoogle(p, key, this.d.fetch, s.lang)
   }
 
-  private async copyFor(placeId: number, c: Pick<DemoContent, 'name' | 'demoKind' | 'lang' | 'rating' | 'reviewsCount' | 'reviews'>, category: string, summary: string | null) {
+  private async copyFor(placeId: number, c: Pick<DemoContent, 'name' | 'demoKind' | 'lang' | 'rating' | 'reviewsCount' | 'reviews'>, category: string, summary: string | null, fresh = false) {
     const { copy } = await generateDemoCopy(
       { name: c.name, category, demoKind: c.demoKind, lang: c.lang, rating: c.rating, reviewsCount: c.reviewsCount,
         reviews: c.reviews.filter((r) => r.on).map((r) => r.text), summary },
-      { ask: askerFor(this.d, loadSettings(this.d.db)), db: this.d.db, placeId }
+      { ask: askerFor(this.d, loadSettings(this.d.db)), db: this.d.db, placeId, fresh }
     )
     return copy
   }
 
   async build(placeId: number, o: { source: 'auto' | 'free'; googleId?: string }): Promise<DemoView> {
     this.license()
+    this.place(placeId)
+    await this.exclusive(placeId, () => this.doBuild(placeId, o))
+    return this.view(this.need(placeId))
+  }
+
+  private async doBuild(placeId: number, o: { source: 'auto' | 'free'; googleId?: string }): Promise<void> {
     const { db } = this.d
     const p = this.place(placeId)
     const s = loadSettings(db)
     const now = this.d.now()
-    const old = this.row(placeId)
-    const slug = old?.slug ?? this.newSlug(p.name)
     const key = o.source === 'auto' ? getSecret(db, 'google', this.d.secretEnv) : null
     const cached = key ? cachedDetails(db, placeId, now) : null
+    let fetched: Awaited<ReturnType<typeof fetchGoogleDemo>> | null = null
     let src: SourceData
-    let photos: DemoPhoto[] = []
-    if (cached) {
-      src = cached
-      photos = cached.photoFiles.map((f) => ({ ...f, source: 'google' }))
-    } else if (key) {
+    if (cached) src = cached
+    else if (key) {
       const gid = o.googleId ?? p.googlePlaceId
       if (!gid) throw new Error('no_google_id')
-      if (demoGoogleLeft(db, now, s.demoGoogleDaily) < DEMO_GOOGLE_NEED) throw new Error('demo_google_limit')
-      // shortcut: если запрос упал на середине, сделанные платные запросы не списываются; счётчик в fetchGoogleDemo — если это станет заметно
-      const g = await fetchGoogleDemo(gid, key, this.d.fetch, s.lang)
-      takeDemoGoogle(db, now, g.requests, Infinity) // лимит проверен до запроса, списываем фактическое число
-      let n = nextPhotoNum(this.root, slug)
-      photos = g.photos.map((ph) => {
-        const file = `img/${n++}.jpg`
-        writeDemoFile(this.root, slug, file, this.d.resizeImage(ph.bytes))
-        return { file, author: ph.author, source: 'google' }
-      })
-      db.prepare('INSERT OR REPLACE INTO place_details(place_id,hours,reviews,photos,summary,fetched_at) VALUES (?,?,?,?,?,?)')
-        .run(placeId, JSON.stringify(g.hours), JSON.stringify(g.reviews), JSON.stringify(photos.map(({ file, author }) => ({ file, author }))), g.summary, now)
-      src = g
+      // резерв на всю сборку до запроса: параллельные сборки не превысят лимит; упавшая сборка резерв не возвращает
+      if (!takeDemoGoogle(db, now, DEMO_GOOGLE_NEED, s.demoGoogleDaily)) throw new Error('demo_google_limit')
+      fetched = await fetchGoogleDemo(gid, key, this.d.fetch, s.lang)
+      refundDemoGoogle(db, now, DEMO_GOOGLE_NEED - fetched.requests)
+      src = fetched
     } else src = freeDemo(db, p, s.lang)
 
     const cat = CATEGORIES.find((c) => c.id === p.category)
@@ -160,14 +157,35 @@ export class DemoService {
     const mapsUrl = src.mapsUrl ?? mapsFallback(p)
     const base = { name: p.name, demoKind, lang: s.lang, rating: src.rating ?? p.rating, reviewsCount: src.reviewsCount ?? p.reviews, reviews: src.reviews }
     const copy = await this.copyFor(placeId, base, cat?.title ?? p.category, src.summary)
+
+    // дальше без await: место могли удалить, пока ждали Google и ИИ — тогда ни строк, ни файлов
+    const cur = this.place(placeId)
+    const old = this.row(placeId)
+    const slug = old?.slug ?? this.newSlug(cur.name)
+    let photos: DemoPhoto[] = cached ? cached.photoFiles.map((f) => ({ ...f, source: 'google' })) : []
+    if (fetched) {
+      let n = nextPhotoNum(this.root, slug)
+      photos = fetched.photos.map((ph) => {
+        const file = `img/${n++}.jpg`
+        writeDemoFile(this.root, slug, file, this.d.resizeImage(ph.bytes))
+        return { file, author: ph.author, source: 'google' }
+      })
+      db.prepare('INSERT OR REPLACE INTO place_details(place_id,hours,reviews,photos,summary,fetched_at) VALUES (?,?,?,?,?,?)')
+        .run(placeId, JSON.stringify(fetched.hours), JSON.stringify(fetched.reviews), JSON.stringify(photos.map(({ file, author }) => ({ file, author }))), fetched.summary, now)
+      // подтверждённое совпадение: следующие сборки обойдутся без Text Search; google_place_id уникален
+      if (o.googleId && !cur.googlePlaceId && !db.prepare('SELECT 1 FROM places WHERE google_place_id=?').get(o.googleId)) {
+        updatePlace(db, placeId, { googlePlaceId: o.googleId })
+      }
+    }
+    // пункты с ценами и свои фото вводил пользователь: пересборка их не стирает
     const prev = old ? (JSON.parse(old.content) as DemoContent | null) : null
+    const userPhotos = prev?.photos.filter((x) => x.source === 'user') ?? []
     const content: DemoContent = {
-      ...base, ...copy, hours: src.hours, items: prev?.items ?? [], photos, // пункты с ценами вводил пользователь: пересборка их не стирает
+      ...base, ...copy, hours: src.hours, items: prev?.items ?? [], photos: [...userPhotos, ...photos].slice(0, MAX_PHOTOS),
       address: p.address, mapsUrl, phone: p.phoneE164, cta: defaultCta(demoKind, { phone: p.phoneE164, mapsUrl }),
       showBadge: true, fromGoogle: src.fromGoogle
     }
     this.upsert(placeId, slug, 'template', src.fromGoogle ? 'google' : 'free', content)
-    return this.view(this.need(placeId))
   }
 
   save(placeId: number, c: DemoContent): void {
@@ -179,7 +197,7 @@ export class DemoService {
     const c = this.content(this.need(placeId))
     const p = this.place(placeId)
     const summary = (this.d.db.prepare('SELECT summary FROM place_details WHERE place_id=?').get(placeId) as { summary: string | null } | undefined)?.summary ?? null
-    const copy = await this.copyFor(placeId, c, CATEGORIES.find((x) => x.id === p.category)?.title ?? p.category, summary)
+    const copy = await this.copyFor(placeId, c, CATEGORIES.find((x) => x.id === p.category)?.title ?? p.category, summary, true)
     const next = { ...this.content(this.need(placeId)), ...copy } // черновик мог сохраниться, пока ждали ИИ
     this.save(placeId, next)
     return next
@@ -208,16 +226,24 @@ export class DemoService {
 
   async importSite(placeId: number, kind: 'folder' | 'zip' | 'html'): Promise<DemoView> {
     const path = await this.d.openDialog(kind)
-    const old = this.row(placeId)
     if (!path) {
+      const old = this.row(placeId)
       if (old) return this.view(old)
       throw new Error('cancelled')
     }
-    const p = this.place(placeId)
-    const files = validateImport(await readImport({ kind, path }))
-    const slug = old?.slug ?? this.newSlug(p.name)
-    writeSite(this.root, slug, files)
-    this.upsert(placeId, slug, 'import', 'import', undefined)
+    this.place(placeId)
+    await this.exclusive(placeId, async () => {
+      const files = validateImport(await readImport({ kind, path }))
+      const p = this.place(placeId) // место могли удалить, пока читали файлы
+      const slug = this.row(placeId)?.slug ?? this.newSlug(p.name)
+      writeSite(this.root, slug, files)
+      this.upsert(placeId, slug, 'import', 'import', undefined)
+    })
+    return this.view(this.need(placeId))
+  }
+
+  setImportBadge(placeId: number, on: boolean): DemoView {
+    this.d.db.prepare('UPDATE demos SET badge=?, updated_at=? WHERE id=?').run(on ? 1 : 0, this.d.now(), this.need(placeId).id)
     return this.view(this.need(placeId))
   }
 
@@ -239,9 +265,8 @@ export class DemoService {
       this.set(r.id, { status: 'publishing', error: null })
       try {
         const links = { pixel: `${worker.url}/o/${r.slug}`, want: `${worker.url}/w/${r.slug}`, tg: s.demoTg }
-        // shortcut: подпись «Сайт сделал» у импорта всегда выключена, переключатель — когда появится в редакторе импорта
         const files = r.kind === 'import'
-          ? injectTracking(await readSite(this.root, r.slug), links, false, s.lang)
+          ? injectTracking(await readSite(this.root, r.slug), links, r.badge === 1, s.lang)
           : demoFiles(this.content(r), links, (f) => readDemoFile(this.root, r.slug, f))
         const sha = await gh.publish(r.slug, files, `demo: ${r.slug}`)
         this.set(r.id, { commit_sha: sha })
@@ -279,9 +304,9 @@ export class DemoService {
 
   /** Перед удалением места: снять сайт и цель Worker; не вышло — бросает, место не удаляется. */
   async removeForPlace(placeId: number): Promise<void> {
-    const r = this.row(placeId)
-    if (!r) return
-    await this.exclusive(placeId, async () => {
+    await this.exclusive(placeId, async () => { // и без демо: первая сборка может идти прямо сейчас
+      const r = this.row(placeId)
+      if (!r) return
       const live = r.status === 'published' || r.status === 'publishing' || r.status === 'error'
       const gh = ghClient(this.d)
       const worker = workerClient(this.d)

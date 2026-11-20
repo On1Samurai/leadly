@@ -19,6 +19,8 @@ export interface DemoView {
   placeId: number; slug: string; kind: 'template' | 'import'; source: DemoSource
   content: DemoContent | null; status: DemoStatus; url: string | null
   publishedAt: number | null; error: string | null; counts: DemoCounts
+  /** Подпись «Сайт сделал @ник» у импортированного сайта (по умолчанию выключена). */
+  importBadge: boolean
 }
 export interface SetupState {
   github: { ok: boolean; owner?: string; repo?: string; pagesUrl?: string; error?: string; manualPages?: boolean }

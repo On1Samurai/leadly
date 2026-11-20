@@ -58,7 +58,7 @@ describe('db', () => {
   it('migrate twice is idempotent', () => {
     migrate(db)
     const rows = db.prepare('SELECT version FROM schema_version').all() as { version: number }[]
-    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5])
+    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6])
   })
 
   it('миграция 002: places.deal_amount', () => {

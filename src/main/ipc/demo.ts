@@ -11,6 +11,7 @@ export function demoHandlers(t: Table, svc: DemoService): void {
   define(t, 'demo.preview', (_e, id, c) => svc.preview(id, c))
   define(t, 'demo.photoAdd', (_e, id) => svc.photoAdd(id))
   define(t, 'demo.importSite', (_e, id, kind) => svc.importSite(id, kind))
+  define(t, 'demo.setImportBadge', (_e, id, on) => svc.setImportBadge(id, on))
   define(t, 'demo.publish', (_e, id) => svc.publish(id))
   define(t, 'demo.unpublish', (_e, id) => svc.unpublish(id))
   define(t, 'demo.openLive', (_e, id) => svc.openLive(id))

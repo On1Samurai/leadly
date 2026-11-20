@@ -13,7 +13,8 @@ import { channelsFor } from '../core/links'
 import { parsePhone } from '../core/phones'
 import { scorePlace } from '../core/scoring'
 import { classifyWeb } from '../core/webclass'
-import { anthropicAsker, buildMessageInput, cacheKey, generateMessage, isTextReady, openaiAsker, type Asker, type MessageInput } from '../llm/message'
+import { buildMessageInput, cacheKey, generateMessage, isTextReady, type MessageInput } from '../llm/message'
+import { askerFor } from '../llm/asker'
 import { historyFor, rescore } from '../search/rescore'
 import { GoogleClient, Budget } from '../sources/google'
 import { getSecret } from '../secrets'
@@ -97,16 +98,6 @@ function takeRefresh(db: Db, now: number): boolean {
   if (n >= REFRESH_PER_DAY) return false
   setSetting(db, 'googleRefresh', { date, n: n + 1 })
   return true
-}
-
-/** Клиент ИИ по настройке провайдера; null — ключа нет. */
-export function askerFor(d: Pick<IpcDeps, 'db' | 'secretEnv' | 'anthropicFactory'>, s: AppSettings): Asker | null {
-  if (s.llmProvider === 'anthropic') {
-    const key = getSecret(d.db, 'anthropic', d.secretEnv)
-    return key ? anthropicAsker(d.anthropicFactory(key)) : null
-  }
-  const key = getSecret(d.db, 'llm', d.secretEnv)
-  return key ? openaiAsker({ baseUrl: s.llmBaseUrl, apiKey: key, model: s.llmModel }) : null
 }
 
 const insideShots = (userDataDir: string, f: string): boolean =>

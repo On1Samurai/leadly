@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { ChannelName } from '../../shared/ipc'
 import { NUM_LIMITS, type NumKey } from '../../shared/settings'
+import type { DemoContent } from '../../shared/demo/types'
 
 export const STATUSES = ['new', 'written', 'replied', 'demo_opened', 'call', 'deal', 'refused', 'later'] as const
 export const CHANNEL_IDS = ['telegram', 'whatsapp', 'viber', 'instagram', 'vk', 'max', 'call', 'sms'] as const
@@ -60,7 +61,7 @@ export const DemoContentSchema = z.object({
   address: str(500).nullable(), mapsUrl: href.nullable(), phone: str(50).nullable(),
   cta: z.object({ kind: z.enum(['call', 'route', 'book']), target: href }).strict(),
   showBadge: bool, fromGoogle: bool
-}).strict()
+}).strict() satisfies z.ZodType<DemoContent>
 
 const none = z.tuple([])
 export const ARGS = {
@@ -113,6 +114,7 @@ export const ARGS = {
   'demo.preview': z.tuple([id, DemoContentSchema]),
   'demo.photoAdd': z.tuple([id]),
   'demo.importSite': z.tuple([id, z.enum(['folder', 'zip', 'html'])]),
+  'demo.setImportBadge': z.tuple([id, bool]),
   'demo.publish': z.tuple([id]),
   'demo.unpublish': z.tuple([id]),
   'demo.openLive': z.tuple([id]),

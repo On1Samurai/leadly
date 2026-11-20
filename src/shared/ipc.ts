@@ -81,6 +81,7 @@ export interface Api {
     preview(placeId: number, c: DemoContent): Promise<string>
     photoAdd(placeId: number): Promise<DemoContent>
     importSite(placeId: number, kind: 'folder' | 'zip' | 'html'): Promise<DemoView>
+    setImportBadge(placeId: number, on: boolean): Promise<DemoView>
     publish(placeId: number): Promise<DemoView>
     unpublish(placeId: number): Promise<DemoView>
     openLive(placeId: number): Promise<void>
@@ -111,7 +112,7 @@ export const METHODS: MethodMap = {
   license: { get: true, set: true },
   update: { check: true, download: true, install: true, status: true },
   demo: {
-    get: true, list: true, match: true, build: true, save: true, rewrite: true, preview: true, photoAdd: true, importSite: true,
+    get: true, list: true, match: true, build: true, save: true, rewrite: true, preview: true, photoAdd: true, importSite: true, setImportBadge: true,
     publish: true, unpublish: true, openLive: true, postcard: true, setup: true, setupGithub: true, setupWorker: true, budget: true
   }
 }

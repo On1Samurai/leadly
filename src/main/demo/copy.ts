@@ -75,12 +75,13 @@ export function fallbackCopy(input: CopyInput): DemoCopy {
 }
 
 export async function generateDemoCopy(
-  input: CopyInput, deps: { ask: Asker | null; db: Db; placeId: number }
+  input: CopyInput, deps: { ask: Asker | null; db: Db; placeId: number; fresh?: boolean }
 ): Promise<{ copy: DemoCopy; ai: boolean }> {
   if (!deps.ask) return { copy: fallbackCopy(input), ai: false }
   const ask = deps.ask
   const key = createHash('sha256').update('demo-copy:' + VERSION + JSON.stringify(input)).digest('hex')
-  const hit = deps.db.prepare('SELECT response FROM llm_cache WHERE key = ?').get(key) as { response: string } | undefined
+  // fresh: «Переписать» — новый ответ ИИ вместо кэша; результат всё равно кэшируется
+  const hit = deps.fresh ? undefined : deps.db.prepare('SELECT response FROM llm_cache WHERE key = ?').get(key) as { response: string } | undefined
   if (hit) {
     const c = checkDemoCopy(hit.response, input)
     if (c.ok) return { copy: c.copy, ai: true }

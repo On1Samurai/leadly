@@ -71,4 +71,13 @@ describe('generateDemoCopy', () => {
     expect(ask).toHaveBeenCalledTimes(1)
     expect(r).toEqual({ copy: good, ai: true })
   })
+  it('fresh skips cache read but writes it', async () => {
+    const d = db()
+    const other = { ...good, headline: 'Уют рядом' }
+    const ask = vi.fn().mockResolvedValueOnce(ok()).mockResolvedValueOnce(ok(other))
+    await generateDemoCopy(input, { ask, db: d, placeId: 1 })
+    expect(await generateDemoCopy(input, { ask, db: d, placeId: 1, fresh: true })).toEqual({ copy: other, ai: true })
+    expect(await generateDemoCopy(input, { ask, db: d, placeId: 1 })).toEqual({ copy: other, ai: true })
+    expect(ask).toHaveBeenCalledTimes(2)
+  })
 })
