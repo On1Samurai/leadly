@@ -37,9 +37,15 @@ export async function setupGithub(d: Deps, repo: string): Promise<SetupState['gi
   if (!token) return { ok: false, error: 'no_github_token', repo }
   try {
     const cfg: GhRepo = { owner: await new GitHubPages(d.fetch, token, null).login(), repo }
-    setSetting(d.db, 'demo:github', cfg)
+    const old = getSetting<GhRepo | null>(d.db, 'demo:github', null)
+    const same = !!old && old.owner.toLowerCase() === cfg.owner.toLowerCase() && old.repo.toLowerCase() === repo.toLowerCase()
+    // демо в старом репозитории остались бы без снятия: unpublish ищет папку уже в новом
+    if (old && !same && d.db.prepare("SELECT 1 FROM demos WHERE status IN ('published','publishing','error') LIMIT 1").get()) {
+      return { ok: false, error: 'gh_repo_locked', repo }
+    }
     const gh = new GitHubPages(d.fetch, token, cfg)
     await gh.ensureInit()
+    setSetting(d.db, 'demo:github', cfg)
     const manual = (await gh.enablePages()) === 'manual'
     return { ...cfg, ...(await gh.check()), ...(manual ? { manualPages: true } : {}) }
   } catch (e) {

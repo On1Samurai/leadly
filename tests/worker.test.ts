@@ -113,6 +113,35 @@ describe('worker', () => {
     const cols = (await DB.prepare('PRAGMA table_info(events)').all()).results.map((c: any) => c.name)
     expect(cols).toEqual(['id', 'slug', 'kind', 'ts'])
   })
+  it('qr, want and pixel still answer when event insert fails', async () => {
+    await put('s-1', { url: 'https://x.y/', tg: 'nick' })
+    const real = DB
+    env.DB = {
+      exec: real.exec,
+      prepare: (sql: string) => {
+        if (!sql.startsWith('INSERT INTO events')) return real.prepare(sql)
+        const s: any = { bind: () => s, run: async () => { throw new Error('D1 quota') } }
+        return s
+      }
+    } as D1Like
+    let r = await get('/s-1')
+    expect(r.status).toBe(302)
+    expect(r.headers.get('Location')).toBe('https://x.y/')
+    r = await get('/w/s-1')
+    expect(r.status).toBe(302)
+    r = await get('/o/s-1')
+    expect(r.status).toBe(200)
+    expect(r.headers.get('Content-Type')).toBe('image/gif')
+    // with ctx: the write goes to waitUntil, failure swallowed
+    const waits: Promise<unknown>[] = []
+    r = await worker.fetch(new Request('https://w.test/s-1'), env, { waitUntil: (p: Promise<unknown>) => waits.push(p) })
+    expect(r.status).toBe(302)
+    expect(waits.length).toBe(1)
+    await expect(waits[0]).resolves.toBeUndefined()
+  })
+  it('version 2', () => {
+    expect(WORKER_VERSION).toBe('2')
+  })
   it('health', async () => {
     expect(await (await get('/health')).text()).toBe(`ok ${WORKER_VERSION}`)
   })

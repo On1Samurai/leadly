@@ -6,7 +6,7 @@ const CODES = [
   'demo_offline', 'demo_too_many_photos', 'gh_bad_token', 'gh_no_access', 'gh_not_found', 'gh_conflict', 'gh_offline', 'gh_no_repo',
   'gh_pages_off', 'gh_build_failed', 'gh_build_timeout', 'cf_bad_token', 'cf_no_access', 'cf_no_subdomain', 'cf_offline',
   'worker_offline', 'worker_bad_response', 'google_auth', 'google_unavailable', 'import_bad_path', 'import_bad_type',
-  'import_no_index', 'import_too_big', 'import_too_many', 'slug_exhausted', 'interrupted'
+  'import_no_index', 'import_too_big', 'import_too_many', 'slug_exhausted', 'interrupted', 'gh_repo_locked'
 ]
 
 describe('errText: коды демо', () => {
@@ -25,6 +25,10 @@ describe('errText: коды демо', () => {
     expect(errText(new Error('gh_http_502'))).toBe('Ошибка сервиса (502)')
     expect(errText(new Error("Error invoking remote method 'demo.publish': Error: cf_http_500"))).toBe('Ошибка сервиса (500)')
     expect(errText('worker_http_429')).toBe('Ошибка сервиса (429)')
+  })
+  it('demo_offline и gh_repo_locked — точные тексты', () => {
+    expect(errText(new Error('demo_offline'))).toBe('Нет связи с GitHub — демо с телефоном осталось бы в открытом доступе. Повторите позже')
+    expect(errText('gh_repo_locked')).toBe('Сначала снимите с публикации все демо — иначе они останутся в старом репозитории')
   })
   it('неизвестный код как раньше', () => {
     expect(errText(new Error('boom'))).toBe('Ошибка: boom')

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import type { DemoContent, DemoPhoto, DemoSource, DemoStatus, DemoView, SetupState } from '../../shared/demo/types'
 import type { Place } from '../../shared/types'
 import { demoGoogleLeft, refundDemoGoogle, takeDemoGoogle } from '../core/daily'
@@ -13,7 +13,7 @@ import { loadSettings } from '../settings'
 import { defaultCta, demoFiles, renderDemoHtml } from './build'
 import { postcardHtml } from './postcard'
 import { generateDemoCopy } from './copy'
-import { nextPhotoNum, readDemoFile, readSite, removeDemoDir, writeDemoFile, writeSite } from './files'
+import { demoDir, nextPhotoNum, readDemoFile, readSite, removeDemoDir, writeDemoFile, writeSite } from './files'
 import { GitHubError } from './github'
 import { injectTracking, readImport, validateImport } from './import'
 import { deployWorkerState, ghClient, githubState, setupGithub as setupGithubState, workerClient, workerState } from './setup'
@@ -28,6 +28,20 @@ interface Row {
 type RowPatch = Partial<Pick<Row, 'status' | 'url' | 'commit_sha' | 'published_at' | 'error'>>
 
 const MAX_PHOTOS = 20
+/** Обрезает строку до n единиц UTF-16 (так считает zod), не разрывая суррогатную пару. */
+const cut = (s: string, n: number): string => s.length <= n ? s : s.slice(0, n).replace(/[\uD800-\uDBFF]$/, '')
+const cutN = (s: string | null, n: number): string | null => s === null ? null : cut(s, n)
+/** Данные OSM и Google не ограничены: собранное демо должно проходить DemoContentSchema, иначе его не сохранить. */
+function fitContent(c: DemoContent): DemoContent {
+  return {
+    ...c, name: cut(c.name, 200), headline: cut(c.headline, 200), subhead: cut(c.subhead, 400), about: cut(c.about, 2000),
+    hours: c.hours.slice(0, 14).map((h) => cut(h, 200)),
+    items: c.items.slice(0, 100).map((i) => ({ name: cut(i.name, 200), price: cut(i.price, 50) })),
+    reviews: c.reviews.slice(0, 10).map((r) => ({ ...r, author: cut(r.author, 200), text: cut(r.text, 3000) })),
+    photos: c.photos.map((ph) => ({ ...ph, author: cutN(ph.author, 200) })),
+    address: cutN(c.address, 500), phone: cutN(c.phone, 50)
+  }
+}
 const mapsFallback = (p: Place): string => `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}`
 
 export class DemoService {
@@ -65,7 +79,13 @@ export class DemoService {
       .run(...keys.map((k) => f[k] ?? null), this.d.now(), id)
   }
   private newSlug(name: string): string {
-    return makeSlug(name, this.d.rng, (s) => !!this.d.db.prepare('SELECT 1 FROM demos WHERE slug=?').get(s))
+    // папка без строки — фото Google из сборки, упавшей на ИИ: её slug занят
+    return makeSlug(name, this.d.rng, (s) => !!this.d.db.prepare('SELECT 1 FROM demos WHERE slug=?').get(s) || existsSync(demoDir(this.root, s)))
+  }
+  /** Папка с фото Google из кэша place_details (их slug пишется вместе с ними). */
+  private pinnedSlug(placeId: number): string | null {
+    const r = this.d.db.prepare('SELECT photos FROM place_details WHERE place_id=?').get(placeId) as { photos: string | null } | undefined
+    return (JSON.parse(r?.photos ?? '[]') as { slug?: string }[])[0]?.slug ?? null
   }
   /** Вставка или смена вида; slug и статус существующего демо сохраняются. */
   private upsert(placeId: number, slug: string, kind: Row['kind'], source: DemoSource, content: DemoContent | null | undefined): void {
@@ -114,6 +134,8 @@ export class DemoService {
     const key = getSecret(this.d.db, 'google', this.d.secretEnv)
     if (!key) throw new Error('no_google_key')
     const s = loadSettings(this.d.db)
+    // после подтверждения пойдёт сборка: без запаса на неё поиск — деньги впустую
+    if (demoGoogleLeft(this.d.db, this.d.now(), s.demoGoogleDaily) < 1 + DEMO_GOOGLE_NEED) throw new Error('demo_google_limit')
     if (!takeDemoGoogle(this.d.db, this.d.now(), 1, s.demoGoogleDaily)) throw new Error('demo_google_limit') // резерв до запроса
     return matchGoogle(p, key, this.d.fetch, s.lang)
   }
@@ -141,7 +163,7 @@ export class DemoService {
     const now = this.d.now()
     const key = o.source === 'auto' ? getSecret(db, 'google', this.d.secretEnv) : null
     const cached = key ? cachedDetails(db, placeId, now) : null
-    let fetched: Awaited<ReturnType<typeof fetchGoogleDemo>> | null = null
+    let photos: DemoPhoto[] = cached ? cached.photoFiles.map(({ file, author }) => ({ file, author, source: 'google' })) : []
     let src: SourceData
     if (cached) src = cached
     else if (key) {
@@ -149,9 +171,25 @@ export class DemoService {
       if (!gid) throw new Error('no_google_id')
       // резерв на всю сборку до запроса: параллельные сборки не превысят лимит; упавшая сборка резерв не возвращает
       if (!takeDemoGoogle(db, now, DEMO_GOOGLE_NEED, s.demoGoogleDaily)) throw new Error('demo_google_limit')
-      fetched = await fetchGoogleDemo(gid, key, this.d.fetch, s.lang)
+      const fetched = await fetchGoogleDemo(gid, key, this.d.fetch, s.lang)
       refundDemoGoogle(db, now, DEMO_GOOGLE_NEED - fetched.requests)
       src = fetched
+      // оплаченное сохраняется до ИИ: упадёт он — следующая сборка возьмёт всё из кэша. Без await: место могли удалить, пока ждали Google
+      const cur = this.place(placeId)
+      const slug = this.row(placeId)?.slug ?? this.pinnedSlug(placeId) ?? this.newSlug(cur.name)
+      let n = nextPhotoNum(this.root, slug)
+      photos = fetched.photos.map((ph) => {
+        const file = `img/${n++}.jpg`
+        writeDemoFile(this.root, slug, file, this.d.resizeImage(ph.bytes))
+        return { file, author: ph.author, source: 'google' }
+      })
+      // slug в кэше: строки демо ещё может не быть, а фото уже лежат в его папке
+      db.prepare('INSERT OR REPLACE INTO place_details(place_id,hours,reviews,photos,summary,fetched_at) VALUES (?,?,?,?,?,?)')
+        .run(placeId, JSON.stringify(fetched.hours), JSON.stringify(fetched.reviews), JSON.stringify(photos.map(({ file, author }) => ({ file, author, slug }))), fetched.summary, now)
+      // подтверждённое совпадение: следующие сборки обойдутся без Text Search; google_place_id уникален
+      if (o.googleId && !cur.googlePlaceId && !db.prepare('SELECT 1 FROM places WHERE google_place_id=?').get(o.googleId)) {
+        updatePlace(db, placeId, { googlePlaceId: o.googleId })
+      }
     } else src = freeDemo(db, p, s.lang)
 
     const cat = CATEGORIES.find((c) => c.id === p.category)
@@ -163,30 +201,15 @@ export class DemoService {
     // дальше без await: место могли удалить, пока ждали Google и ИИ — тогда ни строк, ни файлов
     const cur = this.place(placeId)
     const old = this.row(placeId)
-    const slug = old?.slug ?? this.newSlug(cur.name)
-    let photos: DemoPhoto[] = cached ? cached.photoFiles.map((f) => ({ ...f, source: 'google' })) : []
-    if (fetched) {
-      let n = nextPhotoNum(this.root, slug)
-      photos = fetched.photos.map((ph) => {
-        const file = `img/${n++}.jpg`
-        writeDemoFile(this.root, slug, file, this.d.resizeImage(ph.bytes))
-        return { file, author: ph.author, source: 'google' }
-      })
-      db.prepare('INSERT OR REPLACE INTO place_details(place_id,hours,reviews,photos,summary,fetched_at) VALUES (?,?,?,?,?,?)')
-        .run(placeId, JSON.stringify(fetched.hours), JSON.stringify(fetched.reviews), JSON.stringify(photos.map(({ file, author }) => ({ file, author }))), fetched.summary, now)
-      // подтверждённое совпадение: следующие сборки обойдутся без Text Search; google_place_id уникален
-      if (o.googleId && !cur.googlePlaceId && !db.prepare('SELECT 1 FROM places WHERE google_place_id=?').get(o.googleId)) {
-        updatePlace(db, placeId, { googlePlaceId: o.googleId })
-      }
-    }
+    const slug = old?.slug ?? this.pinnedSlug(placeId) ?? this.newSlug(cur.name)
     // пункты с ценами и свои фото вводил пользователь: пересборка их не стирает
     const prev = old ? (JSON.parse(old.content) as DemoContent | null) : null
     const userPhotos = prev?.photos.filter((x) => x.source === 'user') ?? []
-    const content: DemoContent = {
+    const content = fitContent({
       ...base, ...copy, hours: src.hours, items: prev?.items ?? [], photos: [...userPhotos, ...photos].slice(0, MAX_PHOTOS),
       address: p.address, mapsUrl, phone: p.phoneE164, cta: defaultCta(demoKind, { phone: p.phoneE164, mapsUrl }),
       showBadge: true, fromGoogle: src.fromGoogle
-    }
+    })
     this.upsert(placeId, slug, 'template', src.fromGoogle ? 'google' : 'free', content)
   }
 
@@ -237,7 +260,7 @@ export class DemoService {
     await this.exclusive(placeId, async () => {
       const files = validateImport(await readImport({ kind, path }))
       const p = this.place(placeId) // место могли удалить, пока читали файлы
-      const slug = this.row(placeId)?.slug ?? this.newSlug(p.name)
+      const slug = this.row(placeId)?.slug ?? this.pinnedSlug(placeId) ?? this.newSlug(p.name)
       writeSite(this.root, slug, files)
       this.upsert(placeId, slug, 'import', 'import', undefined)
     })
@@ -291,11 +314,21 @@ export class DemoService {
     const worker = workerClient(this.d)
     if (!gh || !worker) throw new Error('demo_not_setup')
     await this.exclusive(placeId, async () => {
-      await gh.unpublish(r.slug)
-      await worker.api.deleteTarget(r.slug)
-      this.set(r.id, { status: 'unpublished', url: null, error: null })
+      await this.ghRemove(gh, r.slug)
+      this.set(r.id, { status: 'unpublished', url: null, error: null }) // сайт уже снят, что бы ни ответил Worker
+      // цель в Worker осталась: код в error, removeForPlace удалит её снова
+      try { await worker.api.deleteTarget(r.slug) } catch (e) { this.set(r.id, { error: (e as Error).message }) }
     })
     return this.view(this.need(placeId))
+  }
+
+  /** Снимает папку с GitHub; репозитория нет (404) — публичной копии тоже нет. */
+  private async ghRemove(gh: NonNullable<ReturnType<typeof ghClient>>, slug: string): Promise<void> {
+    try {
+      await gh.unpublish(slug)
+    } catch (e) {
+      if (!(e instanceof GitHubError && e.code === 'gh_not_found')) throw e
+    }
   }
 
   async openLive(placeId: number): Promise<void> {
@@ -308,16 +341,21 @@ export class DemoService {
   async removeForPlace(placeId: number): Promise<void> {
     await this.exclusive(placeId, async () => { // и без демо: первая сборка может идти прямо сейчас
       const r = this.row(placeId)
-      if (!r) return
+      if (!r) {
+        const pinned = this.pinnedSlug(placeId) // фото Google из сборки без строки демо
+        if (pinned) removeDemoDir(this.root, pinned)
+        return
+      }
       const live = r.status === 'published' || r.status === 'publishing' || r.status === 'error'
       const gh = ghClient(this.d)
       const worker = workerClient(this.d)
       if (live && !gh) throw new Error('demo_not_setup')
       try {
-        if (live) await gh!.unpublish(r.slug)
+        if (live) await this.ghRemove(gh!, r.slug)
         if (worker) await worker.api.deleteTarget(r.slug)
-      } catch {
-        throw new Error('demo_offline')
+      } catch (e) {
+        const code = (e as Error).message
+        throw new Error(/^(gh|worker|cf)_offline$/.test(code) ? 'demo_offline' : code)
       }
       removeDemoDir(this.root, r.slug) // сначала файлы: если не удалились, строки целы и можно повторить
       this.d.db.transaction(() => {

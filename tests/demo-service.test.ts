@@ -13,6 +13,7 @@ import { saveSettings } from '../src/main/settings'
 import { formatOsmHours } from '../src/main/core/osm-hours'
 import { SLUG_RE } from '../src/main/demo/slug'
 import { WORKER_VERSION } from '../src/worker/worker.js'
+import { DemoContentSchema } from '../src/main/ipc/schemas'
 import type { DemoContent, DemoView, SetupState } from '../src/shared/demo/types'
 
 const ev = {} as never
@@ -33,7 +34,7 @@ function fakeNet() {
   const commits: Record<string, string> = { c0: 't0' }
   let head = 'c0'
   let n = 0
-  const st = { offline: false, ghStatus: 0, health: `ok ${WORKER_VERSION}`, cfSub: 'me' as string | null, mediaFail: false, gate: null as Promise<void> | null }
+  const st = { offline: false, ghStatus: 0, health: `ok ${WORKER_VERSION}`, cfSub: 'me' as string | null, mediaFail: false, gate: null as Promise<void> | null, ghFail: '', wStatus: 0, details: {} as Record<string, unknown> }
   const fetch = (async (url: string, o: RequestInit = {}) => {
     const method = o.method ?? 'GET'
     const isForm = o.body instanceof FormData
@@ -43,6 +44,7 @@ function fakeNet() {
     const u = new URL(url)
     if (u.host === 'api.github.com') {
       if (st.ghStatus) return reply(st.ghStatus)
+      if (st.ghFail && u.pathname.includes(st.ghFail)) return reply(500)
       const p = u.pathname.replace(/^\/repos\/u\/leadly-demos/i, '')
       const key = `${method} ${p}`
       if (key === 'GET /user') return reply(200, { login: 'U' })
@@ -76,7 +78,7 @@ function fakeNet() {
         regularOpeningHours: { weekdayDescriptions: ['Пн: 09:00–21:00'] },
         reviews: [{ text: { text: 'Вкусно' }, rating: 5, authorAttribution: { displayName: 'Аня' } }],
         photos: [{ name: 'places/g1/photos/p1' }, { name: 'places/g1/photos/p2' }],
-        editorialSummary: { text: 'Кофейня' }, googleMapsUri: 'https://maps.google/x'
+        editorialSummary: { text: 'Кофейня' }, googleMapsUri: 'https://maps.google/x', ...st.details
       })
     }
     if (u.host === 'api.cloudflare.com') {
@@ -89,6 +91,7 @@ function fakeNet() {
     }
     if (url.startsWith(WORKER)) {
       if (u.pathname === '/health') return new Response(st.health)
+      if (st.wStatus) return new Response(null, { status: st.wStatus })
       return new Response(null, { status: 200 })
     }
     return reply(404)
@@ -148,6 +151,26 @@ describe('demo service', () => {
     expect(v.content!.mapsUrl).toBe('https://www.google.com/maps/search/?api=1&query=53.9,27.56')
     expect(v.content!.cta).toEqual({ kind: 'route', target: v.content!.mapsUrl })
     expect(v.content!.showBadge).toBe(true)
+  })
+
+  it('build clamps oversized source data to the content schema', async () => {
+    const id = mk({ name: 'Кафе '.repeat(60), address: 'ул. '.repeat(200), phoneE164: '+7' + '1'.repeat(60) })
+    db.prepare('UPDATE places SET osm_hours=? WHERE id=?').run('я'.repeat(255), id)
+    const free = await build(id)
+    expect(DemoContentSchema.safeParse(free.content).success).toBe(true)
+    await h()['demo.save'](ev, id, free.content)
+
+    setSecret(db, 'google', 'GK', secretEnv)
+    const g = mk({ googlePlaceId: 'g1', name: 'Другое' })
+    net.st.details = {
+      regularOpeningHours: { weekdayDescriptions: Array(20).fill('Пн: ' + '9'.repeat(300)) },
+      reviews: Array(5).fill({ text: { text: 'ы'.repeat(4000) }, rating: 5, authorAttribution: { displayName: 'А'.repeat(300) } }),
+      photos: [{ name: 'places/g1/photos/p1', authorAttributions: [{ displayName: 'Б'.repeat(300) }] }]
+    }
+    const v = await build(g)
+    const r = DemoContentSchema.safeParse(v.content)
+    expect(r.error?.issues ?? []).toEqual([])
+    await h()['demo.save'](ev, g, v.content)
   })
 
   it('build google limit: no Google call', async () => {
@@ -253,6 +276,57 @@ describe('demo service', () => {
     expect(getPlace(db, id)).not.toBeNull()
     expect(db.prepare('SELECT 1 FROM demos WHERE place_id=?').get(id)).toBeTruthy()
     expect(existsSync(join(dir, 'demos', slug))).toBe(true)
+  })
+
+  it('remove: repo gone on GitHub (404) -> place deleted', async () => {
+    setup()
+    const id = mk()
+    const { slug } = await build(id)
+    await h()['demo.publish'](ev, id)
+    net.st.ghStatus = 404
+    await h()['places.remove'](ev, id)
+    expect(getPlace(db, id)).toBeNull()
+    expect(existsSync(join(dir, 'demos', slug))).toBe(false)
+    expect(net.calls.some((c) => c.method === 'DELETE' && c.url === `${WORKER}/api/targets/${slug}`)).toBe(true)
+  })
+
+  it('remove: real GitHub / Worker error code, place kept', async () => {
+    setup()
+    const id = mk()
+    await build(id)
+    await h()['demo.publish'](ev, id)
+    net.st.ghStatus = 401
+    await expect(h()['places.remove'](ev, id)).rejects.toThrow('gh_bad_token')
+    expect(getPlace(db, id)).not.toBeNull()
+    net.st.ghStatus = 0
+    net.st.wStatus = 500
+    await expect(h()['places.remove'](ev, id)).rejects.toThrow('worker_http_500')
+    expect(getPlace(db, id)).not.toBeNull()
+  })
+
+  it('unpublish: repo gone (404) -> unpublished', async () => {
+    setup()
+    const id = mk()
+    await build(id)
+    await h()['demo.publish'](ev, id)
+    net.st.ghStatus = 404
+    expect(((await h()['demo.unpublish'](ev, id)) as DemoView).status).toBe('unpublished')
+  })
+
+  it('unpublish: GitHub removed, Worker failed -> unpublished with error; remove retries the target', async () => {
+    setup()
+    const id = mk()
+    const { slug } = await build(id)
+    await h()['demo.publish'](ev, id)
+    net.st.wStatus = 500
+    const v = (await h()['demo.unpublish'](ev, id)) as DemoView
+    expect(v).toMatchObject({ status: 'unpublished', error: 'worker_http_500', url: null })
+    expect(net.ghPaths().some((p) => p.startsWith(`${slug}/`))).toBe(false)
+    await expect(h()['places.remove'](ev, id)).rejects.toThrow('worker_http_500')
+    expect(getPlace(db, id)).not.toBeNull()
+    net.st.wStatus = 0
+    await h()['places.remove'](ev, id)
+    expect(getPlace(db, id)).toBeNull()
   })
 
   it('remove ok: place, folder, rows gone; site unpublished', async () => {
@@ -372,6 +446,36 @@ describe('demo service', () => {
     expect(s.github).toMatchObject({ ok: true, owner: 'U', repo: 'leadly-demos' })
   })
 
+  it('setupGithub saves the repo only after login and init succeed', async () => {
+    setSecret(db, 'github', 'GT', secretEnv)
+    setSetting(db, 'demo:github', { owner: 'u', repo: 'leadly-demos' })
+    net.st.ghFail = '/git/ref/heads/main'
+    const s = (await h()['demo.setupGithub'](ev, 'other')) as SetupState
+    expect(s.github).toMatchObject({ ok: false, error: 'gh_http_500' })
+    expect(getSetting(db, 'demo:github', null)).toEqual({ owner: 'u', repo: 'leadly-demos' })
+  })
+
+  it('setupGithub refuses another repo while a demo is live there', async () => {
+    setup()
+    const id = mk()
+    await build(id)
+    await h()['demo.publish'](ev, id)
+    const before = net.calls.length
+    const s = (await h()['demo.setupGithub'](ev, 'other')) as SetupState
+    expect(s.github).toMatchObject({ ok: false, error: 'gh_repo_locked' })
+    expect(getSetting(db, 'demo:github', null)).toEqual({ owner: 'u', repo: 'leadly-demos' })
+    expect(net.calls.slice(before).some((c) => c.method !== 'GET')).toBe(false)
+    // тот же репозиторий (регистр владельца не важен) — можно
+    expect(((await h()['demo.setupGithub'](ev, 'leadly-demos')) as SetupState).github).toMatchObject({ ok: true })
+    for (const st of ['error', 'publishing']) {
+      db.prepare('UPDATE demos SET status=?').run(st)
+      expect(((await h()['demo.setupGithub'](ev, 'other')) as SetupState).github).toMatchObject({ error: 'gh_repo_locked' })
+    }
+    db.prepare("UPDATE demos SET status='unpublished'").run()
+    await h()['demo.setupGithub'](ev, 'other')
+    expect(getSetting(db, 'demo:github', null)).toEqual({ owner: 'U', repo: 'other' })
+  })
+
   const left = async () => ((await h()['demo.budget'](ev)) as { left: number }).left
 
   it('google budget: a failed photo still counts, repeated builds hit the limit', async () => {
@@ -406,6 +510,18 @@ describe('demo service', () => {
     expect(googleCalls()).toBe(0)
   })
 
+  it('match refuses when the build after it would not fit the limit', async () => {
+    setSecret(db, 'google', 'GK', secretEnv)
+    saveSettings(db, { demoGoogleDaily: 4 }) // 1 на поиск + 4 на сборку не помещаются
+    const id = mk()
+    await expect(h()['demo.match'](ev, id)).rejects.toThrow('demo_google_limit')
+    expect(googleCalls()).toBe(0)
+    expect(await left()).toBe(4)
+    saveSettings(db, { demoGoogleDaily: 5 })
+    await h()['demo.match'](ev, id)
+    expect(googleCalls()).toBe(1)
+  })
+
   it('rewrite asks AI again instead of the cache', async () => {
     saveSettings(db, { llmProvider: 'anthropic' })
     setSecret(db, 'anthropic', 'AK', secretEnv)
@@ -421,6 +537,41 @@ describe('demo service', () => {
     const b = (await h()['demo.rewrite'](ev, id)) as DemoContent
     expect([a.headline, b.headline]).toEqual(['Второй', 'Третий'])
     expect(((await h()['demo.get'](ev, id)) as DemoView).content!.headline).toBe('Третий')
+  })
+
+  it('AI fails after Google fetch: paid data cached, next build makes no Google call', async () => {
+    setSecret(db, 'google', 'GK', secretEnv)
+    saveSettings(db, { llmProvider: 'anthropic' })
+    setSecret(db, 'anthropic', 'AK', secretEnv)
+    let aiDown = true
+    factory = () => ({ beta: { messages: { create: async () => {
+      if (aiDown) throw new Error('llm_offline')
+      return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify({ headline: 'Кофе', subhead: 'Кофе рядом', about: 'Хорошее место.' }) }] }
+    } } } }) as never
+    const id = mk({ googlePlaceId: 'g1' })
+    await expect(build(id)).rejects.toThrow()
+    expect(googleCalls()).toBe(3)
+    expect(db.prepare('SELECT 1 FROM demos WHERE place_id=?').get(id)).toBeUndefined()
+    aiDown = false
+    const v = await build(id)
+    expect(googleCalls()).toBe(3)
+    expect(v.source).toBe('google')
+    expect(v.content!.photos.map((p) => p.file)).toEqual(['img/1.jpg', 'img/2.jpg'])
+    expect(existsSync(join(dir, 'demos', v.slug, 'img', '1.jpg'))).toBe(true)
+    expect(Object.keys(v.content!.photos[0]).sort()).toEqual(['author', 'file', 'source'])
+  })
+
+  it('remove place with cached Google photos but no demo row: folder gone', async () => {
+    setSecret(db, 'google', 'GK', secretEnv)
+    saveSettings(db, { llmProvider: 'anthropic' })
+    setSecret(db, 'anthropic', 'AK', secretEnv)
+    factory = () => ({ beta: { messages: { create: async () => { throw new Error('llm_offline') } } } }) as never
+    const id = mk({ googlePlaceId: 'g1' })
+    await expect(build(id)).rejects.toThrow()
+    expect(readdirSync(join(dir, 'demos'))).toHaveLength(1)
+    await h()['places.remove'](ev, id)
+    expect(getPlace(db, id)).toBeNull()
+    expect(readdirSync(join(dir, 'demos'))).toEqual([])
   })
 
   it('rebuild keeps user photos first, then Google ones', async () => {

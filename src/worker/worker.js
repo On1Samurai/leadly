@@ -1,4 +1,4 @@
-export const WORKER_VERSION = '1'
+export const WORKER_VERSION = '2'
 
 export const SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS targets (slug TEXT PRIMARY KEY, url TEXT NOT NULL, tg TEXT);
 CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL);`
@@ -30,6 +30,11 @@ function safeEqual(a, b) {
 
 const addEvent = (env, slug, kind) =>
   env.DB.prepare('INSERT INTO events (slug, kind, ts) VALUES (?, ?, ?)').bind(slug, kind, Date.now()).run()
+// stats are best-effort: a D1 failure must never break the redirect / pixel (printed QR codes)
+const track = (env, ctx, slug, kind) => {
+  const p = Promise.resolve().then(() => addEvent(env, slug, kind)).then(() => undefined, () => undefined)
+  return ctx && ctx.waitUntil ? ctx.waitUntil(p) : p
+}
 const getTarget = (env, slug) => env.DB.prepare('SELECT url, tg FROM targets WHERE slug = ?').bind(slug).first()
 
 function isMine(referer) {
@@ -81,7 +86,7 @@ async function api(request, env, parts, url) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url)
     const parts = url.pathname.replace(/\/$/, '').split('/').slice(1)
     const [first, second] = parts
@@ -95,21 +100,21 @@ export default {
     if (first === 'health' && parts.length === 1) return new Response(`ok ${WORKER_VERSION}`)
 
     if (first === 'o' && parts.length === 2 && SLUG_RE.test(second)) {
-      if (!isMine(request.headers.get('Referer') || '') && (await getTarget(env, second))) await addEvent(env, second, 'open')
+      if (!isMine(request.headers.get('Referer') || '') && (await getTarget(env, second))) await track(env, ctx, second, 'open')
       return new Response(GIF, { headers: { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store' } })
     }
 
     if (first === 'w' && parts.length === 2 && SLUG_RE.test(second)) {
       const t = await getTarget(env, second)
       if (!t || !t.tg) return gone()
-      await addEvent(env, second, 'want')
+      await track(env, ctx, second, 'want')
       return redirect(`https://t.me/${t.tg}`)
     }
 
     if (parts.length === 1 && SLUG_RE.test(first)) {
       const t = await getTarget(env, first)
       if (!t) return gone()
-      await addEvent(env, first, 'qr')
+      await track(env, ctx, first, 'qr')
       return redirect(t.url)
     }
     return notFound()

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DemoContent, DemoCta, DemoView, SetupState } from '../../../shared/demo/types'
 import { addItem, canPublish, ctaValid, movePhoto, removeItem, removePhoto, setItem, toggleReview } from '../../../shared/demo/edit'
 import { Button } from '../components/Button'
 import { Field, TextInput, inputCls } from '../components/Field'
 import { DEMO_STATUS_LABEL, POSTCARD_HINT } from '../labels'
+import { draftQueue } from '../draft-save'
 import { errText } from '../lib'
 import { useNav } from '../nav'
 
@@ -25,7 +26,6 @@ export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element 
   const [saveErr, setSaveErr] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
-  const pending = useRef<DemoContent | null>(null)
   const saveTimer = useRef<number>(0)
   const previewReq = useRef(0)
 
@@ -35,23 +35,15 @@ export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element 
     window.api.settings.get().then((s) => setTg(s.demoTg)).catch(() => undefined)
   }, [placeId])
 
-  /** Отправляет отложенное сохранение сразу («Сохранить», перед действиями, уход с экрана). false — не сохранилось. */
-  const flush = useCallback(async (): Promise<boolean> => {
+  const saver = useMemo(() => draftQueue<DemoContent>((x) => window.api.demo.save(placeId, x), {
+    ok: (idle) => { setSaveErr(null); if (idle) setSave('saved') },
+    fail: (e) => setSaveErr(errText(e))
+  }), [placeId])
+  /** Отправляет отложенное сохранение сразу («Сохранить», перед действиями, уход с экрана), дождавшись начатого. false — не сохранилось. */
+  const flush = useCallback((): Promise<boolean> => {
     window.clearTimeout(saveTimer.current)
-    const next = pending.current
-    if (!next) return true
-    pending.current = null
-    try {
-      await window.api.demo.save(placeId, next)
-    } catch (e) {
-      pending.current ??= next // повторит «Сохранить» или следующая правка
-      setSaveErr(errText(e))
-      return false
-    }
-    setSaveErr(null)
-    if (pending.current === null) setSave('saved') // пока ждали, могла прийти новая правка
-    return true
-  }, [placeId])
+    return saver.flush()
+  }, [saver])
   // уход со страницы размонтирует редактор: черновик не теряется
   useEffect(() => () => { void flush() }, [flush])
 
@@ -69,7 +61,7 @@ export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element 
     setC(next)
     if (!ctaValid(next)) return // поле подсветит ошибку; сохраним, когда ссылка станет верной
     setSave('pending')
-    pending.current = next
+    saver.put(next)
     window.clearTimeout(saveTimer.current)
     saveTimer.current = window.setTimeout(() => { void flush() }, 1000)
   }
@@ -81,7 +73,7 @@ export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element 
       if (!String((e as Error)?.message ?? e).includes('cancelled')) setErr(errText(e))
     } finally { setBusy(null) }
   }
-  const view = (x: DemoView): void => { setV(x); if (x.status === 'error' && x.error) setErr(errText(x.error)) }
+  const view = (x: DemoView): void => { setV(x); if (x.error) setErr(errText(x.error)) } // и снятое демо, у которого Worker не удалил цель
 
   if (err && !v) return <main className="px-8 py-6"><p role="alert" className="text-sm text-danger">{err}</p></main>
   if (!v) return <main className="px-8 py-6"><p className="text-sm text-muted">Загрузка…</p></main>

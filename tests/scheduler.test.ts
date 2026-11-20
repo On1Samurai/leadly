@@ -129,6 +129,29 @@ describe('demo_events job', () => {
     expect(n).toBe(2)
     expect(pending('demo_events')).toEqual([{ run_at: at(8) + 5 * 60_000 }])
   })
+  it('handler failure: no retry every tick, next run in 5 min, only the code logged', async () => {
+    setSetting(db, 'demo:worker', { accountId: 'a', d1Id: 'd', url: 'https://w', version: '1' })
+    let n = 0
+    const logged: unknown[][] = []
+    const orig = console.error
+    console.error = (...a: unknown[]) => { logged.push(a) }
+    try {
+      const h = makeHandlers(db, {
+        notify: { digest: async () => undefined, reminder: async () => undefined },
+        backup: async () => undefined, noreply: async () => undefined, rescore: async () => undefined,
+        demoEvents: async () => { n++; throw new Error('worker_offline') }
+      })
+      let now = at(9)
+      const s = new Scheduler(db, h, () => now)
+      s.add('demo_events', at(9))
+      await s.tick()
+      now = at(9) + 60_000
+      await s.tick()
+      expect(n).toBe(1)
+      expect(pending('demo_events')).toEqual([{ run_at: at(9) + 5 * 60_000 }])
+      expect(logged).toEqual([['demo_events failed', 'worker_offline']])
+    } finally { console.error = orig }
+  })
 })
 
 describe('reminder handler', () => {

@@ -156,7 +156,8 @@ export function makeHandlers(db: Db, d: HandlerDeps): Handlers {
     rescore: async (_p, now) => { await d.rescore(now) },
     demo_events: async (_p, now) => {
       if (!getSetting(db, 'demo:worker', null)) return
-      await d.demoEvents(now)
+      // ошибка (нет сети, Worker упал) не идёт в общий повтор каждую минуту: следующая попытка через 5 минут
+      try { await d.demoEvents(now) } catch (e) { console.error('demo_events failed', (e as Error)?.message) }
       // текущая задача ещё не закрыта (run_at <= now), поэтому ищем только будущие
       if (!db.prepare("SELECT 1 FROM jobs WHERE kind='demo_events' AND done=0 AND run_at>?").get(now))
         db.prepare("INSERT INTO jobs(kind,run_at,payload,done) VALUES ('demo_events',?,NULL,0)").run(now + DEMO_EVENTS_MS)
