@@ -66,6 +66,11 @@ describe('syncDemoEvents', () => {
     await run(api([ev(1, 'a', 'want')])).p
     expect((db.prepare('SELECT status FROM places WHERE id=?').get(a) as { status: string }).status).toBe('demo_opened')
   })
+  it('qr scan alone does not move status (spec §11: only open and want)', async () => {
+    const a = mkDemo('a', 'written')
+    await run(api([ev(1, 'a', 'qr')])).p
+    expect((db.prepare('SELECT status FROM places WHERE id=?').get(a) as { status: string }).status).toBe('written')
+  })
   it('open throttle: 1 per hour per slug', async () => {
     mkDemo('a')
     const t0 = 1_000_000

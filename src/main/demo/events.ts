@@ -26,7 +26,7 @@ export async function syncDemoEvents(
         if (!d || ins.run(d.id, e.id, e.kind, e.ts).changes !== 1) continue
         const p = getPlace(db, d.placeId)
         if (!p) continue
-        if (p.status === 'new' || p.status === 'written') {
+        if (e.kind !== 'qr' && (p.status === 'new' || p.status === 'written')) {
           setStatus(db, p.id, 'demo_opened', now)
           rescorePlace(db, p, now)
         }
