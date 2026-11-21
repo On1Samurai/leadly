@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto'
 import type { FetchFn, SleepFn } from '../sources/http'
 
-type GhCode = 'gh_bad_token' | 'gh_no_access' | 'gh_not_found' | 'gh_conflict' | 'gh_offline' | 'gh_tree_truncated' | 'gh_no_branch' | `gh_http_${number}`
+type GhCode = 'gh_bad_token' | 'gh_no_access' | 'gh_not_found' | 'gh_conflict' | 'gh_offline' | 'gh_tree_truncated' | 'gh_no_branch' | 'gh_rate_limited' | `gh_http_${number}`
 
 // message is the bare code: the token never reaches error text
 export class GitHubError extends Error {
@@ -43,8 +44,9 @@ export class GitHubPages {
     }
     const json = await res.json().catch(() => ({}))
     if (res.ok || ok.includes(res.status)) return { status: res.status, json }
+    const rateLimited = res.status === 429 || (res.status === 403 && /rate limit/i.test(String(json?.message ?? '')))
     throw new GitHubError(
-      res.status === 401 ? 'gh_bad_token' : res.status === 403 ? 'gh_no_access' : res.status === 404 ? 'gh_not_found' : res.status === 422 ? 'gh_conflict' : `gh_http_${res.status}`,
+      res.status === 401 ? 'gh_bad_token' : rateLimited ? 'gh_rate_limited' : res.status === 403 ? 'gh_no_access' : res.status === 404 ? 'gh_not_found' : res.status === 422 ? 'gh_conflict' : `gh_http_${res.status}`,
     )
   }
 
@@ -57,7 +59,8 @@ export class GitHubPages {
     throw new GitHubError(`gh_http_${res.status}`)
   }
 
-  private async treePaths(headSha: string): Promise<{ treeSha: string; paths: string[] }> {
+  // blob path -> sha
+  private async treePaths(headSha: string): Promise<{ treeSha: string; paths: Map<string, string> }> {
     const r = this.r()
     const c = await this.req('GET', `${r}/git/commits/${headSha}`)
     const treeSha = c.json?.tree?.sha
@@ -66,8 +69,9 @@ export class GitHubPages {
     if (!Array.isArray(t.json?.tree)) this.bad(t)
     // partial listing: publish/unpublish would miss files to delete
     if (t.json.truncated) throw new GitHubError('gh_tree_truncated')
-    const tree = t.json.tree as ({ path?: unknown; type?: unknown } | null)[]
-    return { treeSha, paths: tree.filter((e) => e?.type === 'blob' && typeof e.path === 'string').map((e) => e!.path as string) }
+    const tree = t.json.tree as ({ path?: unknown; type?: unknown; sha?: unknown } | null)[]
+    const blobs = tree.filter((e) => e?.type === 'blob' && typeof e.path === 'string')
+    return { treeSha, paths: new Map(blobs.map((e) => [e!.path as string, String(e!.sha)])) }
   }
 
   /** 404 on the repo itself: it does not exist (or is hidden from the token). */
@@ -83,12 +87,16 @@ export class GitHubPages {
     const ref = await this.req('GET', `${this.r()}/git/ref/heads/main`, undefined, [404, 409])
     if (ref.status === 404 || ref.status === 409) {
       await this.put('robots.txt', ROBOTS)
+      await this.put('.nojekyll', '')
       await this.put('index.html', INDEX)
       return
     }
     const head = ref.json?.object?.sha
     if (typeof head !== 'string') this.bad(ref)
-    if (!(await this.treePaths(head)).paths.includes('robots.txt')) await this.put('robots.txt', ROBOTS)
+    const { paths } = await this.treePaths(head)
+    if (!paths.has('robots.txt')) await this.put('robots.txt', ROBOTS)
+    // without it Jekyll drops _next/, _astro/ and other _* folders
+    if (!paths.has('.nojekyll')) await this.put('.nojekyll', '')
   }
 
   async enablePages(): Promise<'ok' | 'manual'> {
@@ -116,7 +124,7 @@ export class GitHubPages {
 
   // One commit on top of main; `build` returns tree entries (null = nothing to do). A 422 on the
   // ref means main moved: rebuild everything on the new head, once.
-  private async commit(msg: string, build: (existing: string[]) => Promise<TreeEntry[] | null>): Promise<string | null> {
+  private async commit(msg: string, build: (existing: Map<string, string>) => Promise<TreeEntry[] | null>): Promise<string | null> {
     const r = this.r()
     for (let attempt = 0; ; attempt++) {
       const ref = await this.req('GET', `${r}/git/ref/heads/main`, undefined, [404])
@@ -135,8 +143,8 @@ export class GitHubPages {
     }
   }
 
-  private dropped(slug: string, existing: string[], keep: Set<string>): TreeEntry[] {
-    return existing
+  private dropped(slug: string, existing: Map<string, string>, keep: Set<string>): TreeEntry[] {
+    return [...existing.keys()]
       .filter((p) => p.startsWith(`${slug}/`) && !keep.has(p))
       .map((path) => ({ path, mode: '100644', type: 'blob', sha: null }))
   }
@@ -146,8 +154,13 @@ export class GitHubPages {
     return (await this.commit(msg, async (existing) => {
       const added: TreeEntry[] = []
       for (const f of files) {
-        const blob = await this.req('POST', `${this.r()}/git/blobs`, { content: f.content.toString('base64'), encoding: 'base64' })
-        added.push({ path: `${slug}/${f.path}`, mode: '100644', type: 'blob', sha: blob.json.sha })
+        const path = `${slug}/${f.path}`
+        // same content already at this path: reuse it, fewer uploads = no secondary rate limit
+        const local = createHash('sha1').update(`blob ${f.content.length}\0`).update(f.content).digest('hex')
+        const sha = existing.get(path) === local
+          ? local
+          : (await this.req('POST', `${this.r()}/git/blobs`, { content: f.content.toString('base64'), encoding: 'base64' })).json.sha
+        added.push({ path, mode: '100644', type: 'blob', sha })
       }
       return [...added, ...this.dropped(slug, existing, keep)]
     }))!

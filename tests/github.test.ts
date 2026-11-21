@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { GitHubError, GitHubPages } from '../src/main/demo/github'
 
@@ -93,6 +94,24 @@ describe('publish', () => {
     expect(g.calls.filter((c) => c.method === 'GET' && c.path === '/git/ref/heads/main')).toHaveLength(2)
   })
 
+  it('republish of unchanged files: no blob uploads, existing sha reused; changed file uploaded', async () => {
+    const gitSha = (b: Buffer) => createHash('sha1').update(`blob ${b.length}\0`).update(b).digest('hex')
+    const g = fakeGh({ tree: [
+      { path: 's-1/index.html', type: 'blob', sha: gitSha(Buffer.from('hi')) },
+      { path: 's-1/img/1.jpg', type: 'blob', sha: gitSha(Buffer.from([1, 2])) },
+    ] })
+    await gh(g.fetch).publish('s-1', files, 'm')
+    expect(g.calls.filter((c) => c.path === '/git/blobs')).toHaveLength(0)
+    const tree = g.calls.find((c) => c.path === '/git/trees')!.body.tree
+    expect(tree).toEqual([
+      { path: 's-1/index.html', mode: '100644', type: 'blob', sha: gitSha(Buffer.from('hi')) },
+      { path: 's-1/img/1.jpg', mode: '100644', type: 'blob', sha: gitSha(Buffer.from([1, 2])) },
+    ])
+    const g2 = fakeGh({ tree: [{ path: 's-1/index.html', type: 'blob', sha: gitSha(Buffer.from('old')) }] })
+    await gh(g2.fetch).publish('s-1', files, 'm')
+    expect(g2.calls.filter((c) => c.path === '/git/blobs')).toHaveLength(2)
+  })
+
   it('two 422 in a row: gh_conflict', async () => {
     const g = fakeGh({ fail422: 2 })
     await expect(gh(g.fetch).publish('s-1', files, 'm')).rejects.toMatchObject({ code: 'gh_conflict' })
@@ -125,22 +144,26 @@ describe('ensureInit', () => {
     const g = fakeGh({ empty: true })
     await gh(g.fetch).ensureInit()
     const puts = g.calls.filter((c) => c.method === 'PUT')
-    expect(puts.map((c) => c.path)).toEqual(['/contents/robots.txt', '/contents/index.html'])
+    expect(puts.map((c) => c.path)).toEqual(['/contents/robots.txt', '/contents/.nojekyll', '/contents/index.html'])
+    expect(puts[1].body.content).toBe('')
     expect(puts[0].body).toEqual({ message: 'init', branch: 'main', content: Buffer.from('User-agent: *\nDisallow: /\n').toString('base64') })
-    expect(Buffer.from(puts[1].body.content, 'base64').toString()).toContain('<meta name="robots" content="noindex,nofollow">')
+    expect(Buffer.from(puts[2].body.content, 'base64').toString()).toContain('<meta name="robots" content="noindex,nofollow">')
   })
   it('404 ref is treated as empty too', async () => {
     const g = fakeGh({ status: { 'GET /git/ref/heads/main': 404 } })
     await gh(g.fetch).ensureInit()
-    expect(g.calls.filter((c) => c.method === 'PUT')).toHaveLength(2)
+    expect(g.calls.filter((c) => c.method === 'PUT')).toHaveLength(3)
   })
-  it('commits but no robots.txt: PUT only robots.txt', async () => {
+  it('commits but no robots.txt / .nojekyll: PUT only the missing ones', async () => {
     const g = fakeGh({ tree: [{ path: 'index.html', type: 'blob', sha: 'a' }] })
     await gh(g.fetch).ensureInit()
-    expect(g.calls.filter((c) => c.method === 'PUT').map((c) => c.path)).toEqual(['/contents/robots.txt'])
+    expect(g.calls.filter((c) => c.method === 'PUT').map((c) => c.path)).toEqual(['/contents/robots.txt', '/contents/.nojekyll'])
+    const g2 = fakeGh({ tree: [{ path: 'robots.txt', type: 'blob', sha: 'a' }] })
+    await gh(g2.fetch).ensureInit()
+    expect(g2.calls.filter((c) => c.method === 'PUT').map((c) => c.path)).toEqual(['/contents/.nojekyll'])
   })
-  it('robots.txt present: nothing written', async () => {
-    const g = fakeGh({ tree: [{ path: 'robots.txt', type: 'blob', sha: 'a' }] })
+  it('robots.txt and .nojekyll present: nothing written', async () => {
+    const g = fakeGh({ tree: [{ path: 'robots.txt', type: 'blob', sha: 'a' }, { path: '.nojekyll', type: 'blob', sha: 'b' }] })
     await gh(g.fetch).ensureInit()
     expect(g.calls.some((c) => c.method === 'PUT')).toBe(false)
   })
@@ -241,6 +264,14 @@ describe('errors', () => {
     const e = await gh(g.fetch).login().catch((x) => x)
     expect(e).toBeInstanceOf(GitHubError)
     expect(e.code).toBe(code)
+  })
+  it('429 and 403 rate limit -> gh_rate_limited; plain 403 stays gh_no_access', async () => {
+    const run = async (st: number, message?: string) =>
+      (await gh(fakeGh({ status: { 'GET /user': st }, json: { 'GET /user': message ? { message } : undefined } }).fetch).login().catch((x) => x)).code
+    expect(await run(429)).toBe('gh_rate_limited')
+    expect(await run(403, 'You have exceeded a secondary rate limit. Please wait a few minutes before you try again.')).toBe('gh_rate_limited')
+    expect(await run(403, 'API rate limit exceeded for user ID 1.')).toBe('gh_rate_limited')
+    expect(await run(403, 'Resource not accessible by personal access token')).toBe('gh_no_access')
   })
   it('fetch throws -> gh_offline, no token in message', async () => {
     const f = (async () => { throw new Error(`boom ${TOKEN}`) }) as unknown as typeof fetch

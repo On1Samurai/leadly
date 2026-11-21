@@ -30,6 +30,10 @@ describe('errText: коды демо', () => {
     expect(errText(new Error('demo_offline'))).toBe('Нет связи с GitHub — демо с телефоном осталось бы в открытом доступе. Повторите позже')
     expect(errText('gh_repo_locked')).toBe('Сначала снимите с публикации все демо — иначе они останутся в старом репозитории')
   })
+  it('gh_rate_limited и bad_image — точные тексты', () => {
+    expect(errText('gh_rate_limited')).toBe('GitHub временно ограничил запросы — повторите через несколько минут')
+    expect(errText(new Error("Error invoking remote method 'demo.photoAdd': Error: bad_image"))).toBe('Не удалось прочитать картинку — используйте JPG или PNG')
+  })
   it('неизвестный код как раньше', () => {
     expect(errText(new Error('boom'))).toBe('Ошибка: boom')
   })
