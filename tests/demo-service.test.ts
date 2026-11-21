@@ -425,6 +425,21 @@ describe('demo service', () => {
     expect(existsSync(join(dir, 'demos', slug))).toBe(false)
   })
 
+  it('remove draft or clean unpublished demo offline: no Worker call, place deleted', async () => {
+    setup()
+    const a = mk()
+    await build(a, { source: 'free' })
+    const b = mk({ name: 'Чай Хаус', lat: 53.91 })
+    await build(b, { source: 'free' })
+    await h()['demo.publish'](ev, b)
+    await h()['demo.unpublish'](ev, b)
+    net.st.offline = true
+    await h()['places.remove'](ev, a)
+    await h()['places.remove'](ev, b)
+    expect(getPlace(db, a)).toBeNull()
+    expect(getPlace(db, b)).toBeNull()
+  })
+
   it('preview inlines photos', async () => {
     setSecret(db, 'google', 'GK', secretEnv)
     const id = mk({ googlePlaceId: 'g1' })

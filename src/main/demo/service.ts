@@ -375,12 +375,14 @@ export class DemoService {
         return
       }
       const live = r.status === 'published' || r.status === 'publishing' || r.status === 'error'
+      // цель в Worker есть только у живого демо или у снятого с ошибкой: черновик удаляется и без сети
+      const target = live || (r.status === 'unpublished' && !!r.error)
       const gh = ghClient(this.d)
       const worker = workerClient(this.d)
       if (live && !gh) throw new Error('demo_not_setup')
       try {
         if (live) await this.repoLock(() => this.ghRemove(gh!, r.slug))
-        if (worker) await worker.api.deleteTarget(r.slug)
+        if (worker && target) await worker.api.deleteTarget(r.slug)
       } catch (e) {
         const code = (e as Error).message
         throw new Error(/^(gh|worker|cf)_offline$/.test(code) ? 'demo_offline' : code)
