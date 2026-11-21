@@ -108,7 +108,7 @@ export function DemoEditor({ placeId }: { placeId: number }): React.JSX.Element 
             if (p) setNote(`Сохранено: ${p}`)
           })}>Открытка</Button>
         </>}
-        {(published || v.status === 'error') && <Button variant="ghost" disabled={!!busy} onClick={() => act('unpublish', async () => view(await window.api.demo.unpublish(placeId)))}>
+        {(published || v.status === 'error' || (v.status === 'unpublished' && !!v.error)) && <Button variant="ghost" disabled={!!busy} onClick={() => act('unpublish', async () => view(await window.api.demo.unpublish(placeId)))}>
           {busy === 'unpublish' ? 'Снимаем…' : 'Снять с публикации'}
         </Button>}
       </div>
