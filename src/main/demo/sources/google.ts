@@ -5,7 +5,9 @@ import { haversineM } from '../../core/geo'
 import type { FetchFn } from '../../sources/http'
 
 const BASE = 'https://places.googleapis.com/v1'
-export const GOOGLE_DEMO_COST_USD = 0.04
+// shortcut: list prices as of 2026-11, re-check https://developers.google.com/maps/billing-and-pricing/pricing before release
+export const GOOGLE_DEMO_COST_USD = 0.05 // Details Enterprise+Atmosphere ≈0.025 + 3 фото ≈0.021
+export const GOOGLE_MATCH_COST_USD = 0.035 // Text Search для подтверждения совпадения
 export const DEMO_GOOGLE_NEED = 4 // Details + 3 фото
 const DETAILS_MASK = 'id,displayName,regularOpeningHours,reviews,photos,editorialSummary,rating,userRatingCount,googleMapsUri'
 const FRESH_MS = 30 * 86_400_000

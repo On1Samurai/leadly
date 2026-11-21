@@ -112,7 +112,8 @@ function DemoSection({ d }: { d: PlaceDetails }): React.JSX.Element {
   }
   const build = (o: { source: 'auto' | 'free'; googleId?: string }): void => { setMatch(null); void run(() => doBuild(o)) }
   // лимит Google исчерпан — собираем из бесплатных данных, а не падаем на demo_google_limit
-  const paid = google && budget !== null && budget.left >= budget.need
+  // без googlePlaceId сначала платный поиск (match) — сервер требует 1 + need
+  const paid = google && budget !== null && budget.left >= budget.need + (d.googlePlaceId ? 0 : 1)
   const start = (): void => {
     if (!paid) return build({ source: 'free' })
     if (d.googlePlaceId) return build({ source: 'auto' })
@@ -135,7 +136,7 @@ function DemoSection({ d }: { d: PlaceDetails }): React.JSX.Element {
       {demo === null && <>
         <Button className="self-start" disabled={busy} onClick={start}>{busy ? 'Собираем…' : 'Собрать демо'}</Button>
         {google && budget && (paid
-          ? <p className="text-xs text-muted">≈ ${budget.costUsd.toFixed(2)} из Google, осталось сегодня {budget.left}</p>
+          ? <p className="text-xs text-muted">≈ ${budget.costUsd.toFixed(2)} из Google{d.googlePlaceId ? '' : ` + поиск ≈ $${budget.matchCostUsd.toFixed(3)}`}, осталось сегодня {budget.left}</p>
           : <p className="text-xs text-muted">Лимит Google на сегодня исчерпан — демо соберётся без Google</p>)}
       </>}
       {demo && <>

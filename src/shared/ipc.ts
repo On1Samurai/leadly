@@ -90,7 +90,7 @@ export interface Api {
     setup(): Promise<SetupState>
     setupGithub(repo?: string): Promise<SetupState>
     setupWorker(): Promise<SetupState>
-    budget(): Promise<{ left: number; limit: number; costUsd: number; need: number }>
+    budget(): Promise<{ left: number; limit: number; costUsd: number; matchCostUsd: number; need: number }>
   }
 }
 

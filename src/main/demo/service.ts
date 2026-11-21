@@ -18,7 +18,7 @@ import { GitHubError } from './github'
 import { injectTracking, readImport, validateImport } from './import'
 import { deployWorkerState, ghClient, githubState, setupGithub as setupGithubState, workerClient, workerState } from './setup'
 import { makeSlug } from './slug'
-import { cachedDetails, DEMO_GOOGLE_NEED, fetchGoogleDemo, GOOGLE_DEMO_COST_USD, matchGoogle, type SourceData } from './sources/google'
+import { cachedDetails, DEMO_GOOGLE_NEED, fetchGoogleDemo, GOOGLE_DEMO_COST_USD, GOOGLE_MATCH_COST_USD, matchGoogle, type SourceData } from './sources/google'
 import { freeDemo } from './sources/free'
 
 interface Row {
@@ -133,9 +133,9 @@ export class DemoService {
     return rows.map((r) => ({ ...this.view(r), placeName: r.place_name }))
   }
 
-  budget(): { left: number; limit: number; costUsd: number; need: number } {
+  budget(): { left: number; limit: number; costUsd: number; matchCostUsd: number; need: number } {
     const limit = loadSettings(this.d.db).demoGoogleDaily
-    return { left: demoGoogleLeft(this.d.db, this.d.now(), limit), limit, costUsd: GOOGLE_DEMO_COST_USD, need: DEMO_GOOGLE_NEED }
+    return { left: demoGoogleLeft(this.d.db, this.d.now(), limit), limit, costUsd: GOOGLE_DEMO_COST_USD, matchCostUsd: GOOGLE_MATCH_COST_USD, need: DEMO_GOOGLE_NEED }
   }
 
   /** Один платный Text Search: пользователь подтверждает найденное место до Details. */

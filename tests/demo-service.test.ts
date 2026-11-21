@@ -201,7 +201,7 @@ describe('demo service', () => {
     expect(db.prepare('SELECT 1 FROM place_details WHERE place_id=?').get(id)).toBeTruthy()
     expect(googleCalls()).toBe(3)
     const budget = (await h()['demo.budget'](ev)) as { left: number; limit: number }
-    expect(budget).toMatchObject({ left: 22, limit: 25, need: 4, costUsd: 0.04 })
+    expect(budget).toEqual({ left: 22, limit: 25, need: 4, costUsd: 0.05, matchCostUsd: 0.035 })
     const v2 = await build(id)
     expect(googleCalls()).toBe(3)
     expect(v2.slug).toBe(v.slug)
