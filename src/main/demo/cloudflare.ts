@@ -67,7 +67,8 @@ export async function deployWorker(fetchFn: FetchFn, token: string, secret: stri
     compatibility_date: '2026-11-01',
     bindings: [{ type: 'd1', name: 'DB', id: d1Id }, { type: 'secret_text', name: 'SECRET', text: secret }]
   })], { type: 'application/json' }))
-  form.set('worker.js', new Blob([workerSource], { type: 'application/javascript+module' }), 'worker.js')
+  // workerd rejects non-handler named exports in the main module
+  form.set('worker.js', new Blob([workerSource.replace(/^export const /gm, 'const ')], { type: 'application/javascript+module' }), 'worker.js')
   await c('PUT', `${a}/workers/scripts/${NAME}`, form)
   await c('POST', `${a}/workers/scripts/${NAME}/subdomain`, { enabled: true })
 

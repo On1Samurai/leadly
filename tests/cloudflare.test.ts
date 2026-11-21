@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { CfError, deployWorker } from '../src/main/demo/cloudflare'
 import { WorkerApi } from '../src/main/demo/worker-api'
 import { SCHEMA_SQL, WORKER_VERSION } from '../src/worker/worker.js'
@@ -63,6 +67,21 @@ describe('deployWorker', () => {
     expect(await file.text()).toContain('WORKER_VERSION')
     for (const c of calls) expect(c.headers.Authorization).toBe(`Bearer ${TOKEN}`)
     expect(cfg).toEqual({ accountId: 'acc1', d1Id: 'new-db', url: 'https://leadly-demos.me.workers.dev', version: WORKER_VERSION })
+  })
+
+  it('uploaded worker.js has only export default and still serves /health', async () => {
+    const { fetch, calls } = fakeCf()
+    await deployWorker(fetch, TOKEN, 's')
+    const src = await (calls.find((c) => c.form)!.form!.get('worker.js') as File).text()
+    expect(src).toContain('export default')
+    expect(src).not.toMatch(/export const/)
+    const dir = mkdtempSync(join(tmpdir(), 'lw-'))
+    const f = join(dir, 'w.mjs')
+    writeFileSync(f, src)
+    const mod = await import(/* @vite-ignore */ pathToFileURL(f).href)
+    expect(Object.keys(mod)).toEqual(['default'])
+    const r = await mod.default.fetch(new Request('https://w.test/health'), {})
+    expect(await r.text()).toBe(`ok ${WORKER_VERSION}`)
   })
 
   it('reuses existing d1', async () => {
