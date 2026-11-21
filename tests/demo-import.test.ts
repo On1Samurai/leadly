@@ -93,6 +93,12 @@ describe('injectTracking', () => {
     const [r] = injectTracking([f('index.html', 'hi')], links, false, 'ru')
     expect(r.content.toString()).toBe(`${meta}${pix}hi`)
   })
+  it('no head no body: after <!doctype> and <html> so the doctype stays first', () => {
+    const [r] = injectTracking([f('index.html', '<!DOCTYPE html><title>x</title><p>y')], links, false, 'ru')
+    expect(r.content.toString()).toBe(`<!DOCTYPE html>${meta}${pix}<title>x</title><p>y`)
+    const [r2] = injectTracking([f('index.html', '<!doctype html>\n<HTML lang="ru"><title>x</title>')], links, false, 'ru')
+    expect(r2.content.toString()).toBe(`<!doctype html>\n<HTML lang="ru">${meta}${pix}<title>x</title>`)
+  })
   it('badge off: no @; non-html untouched', () => {
     const out = injectTracking([f('index.html', '<head></head>'), f('a.css', 'b')], links, false, 'ru')
     expect(out[0].content.toString()).not.toContain('@')

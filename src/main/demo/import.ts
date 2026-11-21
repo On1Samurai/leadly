@@ -114,9 +114,11 @@ export function injectTracking(files: ImportedFile[], links: DemoLinks, badge: b
   return files.map((f) => {
     if (!/\.html$/i.test(f.path)) return f
     let buf = f.content
-    const head = /<\/head>/i.exec(buf.toString('latin1'))
-    const body = /<body[^>]*>/i.exec(buf.toString('latin1'))
-    buf = splice(buf, head ? head.index : body ? body.index + body[0].length : 0, track)
+    const text = buf.toString('latin1')
+    const head = /<\/head>/i.exec(text)
+    // without <head>/<body>: after <html> or <!doctype>, so the doctype stays first (else quirks mode)
+    const open = /<body[^>]*>/i.exec(text) ?? /<html\b[^>]*>/i.exec(text) ?? /<!doctype[^>]*>/i.exec(text)
+    buf = splice(buf, head ? head.index : open ? open.index + open[0].length : 0, track)
     if (badge) {
       const end = /<\/body>/i.exec(buf.toString('latin1'))
       buf = splice(buf, end ? end.index : buf.length, isUtf8(f.content) && !declaresOther(f.content) ? badgeHtml : ncr(badgeHtml))
