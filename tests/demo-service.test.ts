@@ -34,6 +34,8 @@ function fakeNet() {
   const commits: Record<string, string> = { c0: 't0' }
   let head = 'c0'
   let n = 0
+  const parents: Record<string, string> = {}
+  const polled = new Map<string, number>()
   const st = { offline: false, ghStatus: 0, health: `ok ${WORKER_VERSION}`, cfSub: 'me' as string | null, mediaFail: false, gate: null as Promise<void> | null, ghFail: '', ghFailStatus: 500, wStatus: 0, details: {} as Record<string, unknown> }
   const fetch = (async (url: string, o: RequestInit = {}) => {
     const method = o.method ?? 'GET'
@@ -65,9 +67,14 @@ function fakeNet() {
         trees[sha] = t
         return reply(201, { sha })
       }
-      if (key === 'POST /git/commits') { const sha = `c${++n}`; commits[sha] = body.tree; return reply(201, { sha }) }
-      if (key === 'PATCH /git/refs/heads/main') { head = body.sha; return reply(200, {}) }
-      if (key === 'GET /pages/builds/latest') return reply(200, { commit: head, status: 'built' })
+      if (key === 'POST /git/commits') { const sha = `c${++n}`; commits[sha] = body.tree; parents[sha] = body.parents[0]; return reply(201, { sha }) }
+      // как GitHub без force: main ушёл вперёд — 422
+      if (key === 'PATCH /git/refs/heads/main') { if (parents[body.sha] !== head) return reply(422); head = body.sha; return reply(200, {}) }
+      // Pages собирает только последний коммит main; первые 8 опросов нового коммита — ещё building
+      if (key === 'GET /pages/builds/latest') {
+        polled.set(head, (polled.get(head) ?? 0) + 1)
+        return reply(200, { commit: head, status: polled.get(head)! > 8 ? 'built' : 'building' })
+      }
       if (method === 'PUT') return reply(201, {})
       return reply(404)
     }
@@ -241,6 +248,20 @@ describe('demo service', () => {
     expect(put?.body).toEqual({ url: v.url, tg: 'mynick' })
     const commit = net.calls.find((c) => c.url.endsWith('/git/commits') && c.method === 'POST')
     expect(commit?.body.message).toBe(`demo: ${slug}`)
+  })
+
+  it('concurrent publishes of different places: both published (repo-wide lock)', async () => {
+    setup()
+    const a = mk()
+    const b = mk({ name: 'Чай Хаус', lat: 53.91 })
+    const sa = (await build(a, { source: 'free' })).slug
+    const sb = (await build(b, { source: 'free' })).slug
+    const hh = h()
+    const [va, vb] = (await Promise.all([hh['demo.publish'](ev, a), hh['demo.publish'](ev, b)])) as DemoView[]
+    expect([va.status, va.error, vb.status, vb.error]).toEqual(['published', null, 'published', null])
+    expect(va.url).toBe(`https://u.github.io/leadly-demos/${sa}/`)
+    expect(vb.url).toBe(`https://u.github.io/leadly-demos/${sb}/`)
+    expect(net.ghPaths()).toEqual(expect.arrayContaining([`${sa}/index.html`, `${sb}/index.html`]))
   })
 
   it('publish error: GitHub 403 -> status error gh_no_access', async () => {

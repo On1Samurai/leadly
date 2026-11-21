@@ -47,6 +47,8 @@ const mapsFallback = (p: Place): string => `https://www.google.com/maps/search/?
 export class DemoService {
   /** placeId, по которым идёт сборка, импорт, публикация, снятие или удаление. */
   private busy = new Set<number>()
+  /** Один репозиторий на все демо: коммиты разных мест по очереди, иначе waitBuild ждёт чужую сборку, а ref даёт 422. */
+  private repo: Promise<unknown> = Promise.resolve()
   constructor(private d: IpcDeps) {
     // публикация оборвалась вместе с программой: сайт мог успеть выйти, error снимается при удалении места
     d.db.prepare("UPDATE demos SET status='error', error='interrupted' WHERE status='publishing'").run()
@@ -282,6 +284,12 @@ export class DemoService {
     return this.view(this.need(placeId))
   }
 
+  private repoLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.repo.then(fn, fn)
+    this.repo = run.catch(() => undefined)
+    return run
+  }
+
   private async exclusive<T>(placeId: number, fn: () => Promise<T>): Promise<T> {
     if (this.busy.has(placeId)) throw new Error('demo_busy')
     this.busy.add(placeId)
@@ -303,9 +311,11 @@ export class DemoService {
         const files = r.kind === 'import'
           ? injectTracking(await readSite(this.root, r.slug), links, r.badge === 1, s.lang)
           : demoFiles(this.content(r), links, (f) => readDemoFile(this.root, r.slug, f))
-        const sha = await gh.publish(r.slug, files, `demo: ${r.slug}`)
-        this.set(r.id, { commit_sha: sha })
-        const built = await gh.waitBuild(sha, this.d.sleep)
+        const built = await this.repoLock(async () => {
+          const sha = await gh.publish(r.slug, files, `demo: ${r.slug}`)
+          this.set(r.id, { commit_sha: sha })
+          return gh.waitBuild(sha, this.d.sleep)
+        })
         if (built !== 'built') throw new Error(built === 'errored' ? 'gh_build_failed' : 'gh_build_timeout')
         const url = gh.pagesUrl(r.slug)
         this.set(r.id, { url })
@@ -324,7 +334,7 @@ export class DemoService {
     const worker = workerClient(this.d)
     if (!gh || !worker) throw new Error('demo_not_setup')
     await this.exclusive(placeId, async () => {
-      await this.ghRemove(gh, r.slug)
+      await this.repoLock(() => this.ghRemove(gh, r.slug))
       this.set(r.id, { status: 'unpublished', url: null, error: null }) // сайт уже снят, что бы ни ответил Worker
       // цель в Worker осталась: код в error, removeForPlace удалит её снова
       try { await worker.api.deleteTarget(r.slug) } catch (e) { this.set(r.id, { error: (e as Error).message }) }
@@ -363,7 +373,7 @@ export class DemoService {
       const worker = workerClient(this.d)
       if (live && !gh) throw new Error('demo_not_setup')
       try {
-        if (live) await this.ghRemove(gh!, r.slug)
+        if (live) await this.repoLock(() => this.ghRemove(gh!, r.slug))
         if (worker) await worker.api.deleteTarget(r.slug)
       } catch (e) {
         const code = (e as Error).message
