@@ -147,14 +147,17 @@ app.whenReady().then(() => {
     sleep: realSleep,
     resizeImage: (b, maxWidth = 1200) => {
       const img = nativeImage.createFromBuffer(b)
+      if (img.isEmpty()) throw new Error('bad_image')
       const { width } = img.getSize()
-      return (width > maxWidth ? img.resize({ width: maxWidth }) : img).toJPEG(80)
+      const jpg = (width > maxWidth ? img.resize({ width: maxWidth }) : img).toJPEG(80)
+      if (!jpg.length) throw new Error('bad_image')
+      return jpg
     },
     printPdf,
     openDialog: async (kind) => {
       const filters = {
         folder: [], zip: [{ name: 'ZIP', extensions: ['zip'] }], html: [{ name: 'HTML', extensions: ['html', 'htm'] }],
-        image: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]
+        image: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png'] }]
       }[kind]
       const r = await dialog.showOpenDialog({ properties: kind === 'folder' ? ['openDirectory'] : ['openFile'], filters })
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]

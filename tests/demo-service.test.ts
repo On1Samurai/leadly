@@ -121,13 +121,13 @@ describe('demo service', () => {
   })
   afterEach(() => { db.close(); rmSync(dir, { recursive: true, force: true }) })
 
-  const h = () => buildHandlers({
+  const h = (over: Partial<IpcDeps> = {}) => buildHandlers({
     db, secretEnv, userDataDir: dir, auditQueue: new AuditQueue(1, async () => undefined),
     now: () => now, rng: Math.random, osm: async () => [], saveDialog: async () => null,
     anthropicFactory: (k) => factory(k), ...stage2Deps,
     fetch: net.fetch, resizeImage: (b) => Buffer.concat([Buffer.from('R'), b]), openDialog: async () => dialog,
     openExternal: async (u) => { opened.push(u) }, writeClipboard: () => undefined,
-    licensePublicKey: pub
+    licensePublicKey: pub, ...over
   } satisfies IpcDeps)
   const mk = (over: Record<string, unknown> = {}): number => insertPlace(db, {
     name: 'Кофе Поинт', category: 'cafe', lat: 53.9, lon: 27.56, address: 'ул. Ленина, 1', cityId: 1, cellId: null,
@@ -452,6 +452,23 @@ describe('demo service', () => {
     const c = (await h()['demo.photoAdd'](ev, id)) as DemoContent
     expect(c.photos.at(-1)).toEqual({ file: 'img/3.jpg', author: null, source: 'user' })
     expect(readFileSync(join(dir, 'demos', slug, 'img', '3.jpg'), 'utf8')).toBe('RPIC')
+  })
+
+  it('photoAdd: unreadable image (empty after resize) -> bad_image, nothing written', async () => {
+    const id = mk()
+    const { slug } = await build(id, { source: 'free' })
+    dialog = join(dir, 'pic.webp')
+    writeFileSync(dialog, 'WEBP')
+    await expect(h({ resizeImage: () => Buffer.alloc(0) })['demo.photoAdd'](ev, id)).rejects.toThrow('bad_image')
+    expect(existsSync(join(dir, 'demos', slug, 'img', '1.jpg'))).toBe(false)
+    expect(((await h()['demo.get'](ev, id)) as DemoView).content!.photos).toEqual([])
+  })
+
+  it('build google: unreadable photo is skipped, build still succeeds', async () => {
+    setSecret(db, 'google', 'GK', secretEnv)
+    const id = mk({ googlePlaceId: 'g1' })
+    const v = (await h({ resizeImage: () => { throw new Error('bad_image') } })['demo.build'](ev, id, { source: 'auto' })) as DemoView
+    expect(v.content!.photos).toEqual([])
   })
 
   it('importSite then publish injects tracking; build switches back to template', async () => {

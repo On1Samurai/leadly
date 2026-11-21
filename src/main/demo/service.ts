@@ -189,10 +189,14 @@ export class DemoService {
       const cur = this.place(placeId)
       const slug = this.row(placeId)?.slug ?? this.pinnedSlug(placeId) ?? this.newSlug(cur.name)
       let n = nextPhotoNum(this.root, slug)
-      photos = fetched.photos.map((ph) => {
+      photos = fetched.photos.flatMap((ph): DemoPhoto[] => {
+        let jpg: Buffer
+        // нечитаемое фото пропускается: иначе каждая повторная сборка снова платит Google
+        try { jpg = this.d.resizeImage(ph.bytes) } catch { return [] }
+        if (!jpg.length) return []
         const file = `img/${n++}.jpg`
-        writeDemoFile(this.root, slug, file, this.d.resizeImage(ph.bytes))
-        return { file, author: ph.author, source: 'google' }
+        writeDemoFile(this.root, slug, file, jpg)
+        return [{ file, author: ph.author, source: 'google' }]
       })
       // slug в кэше: строки демо ещё может не быть, а фото уже лежат в его папке
       db.prepare('INSERT OR REPLACE INTO place_details(place_id,hours,reviews,photos,summary,fetched_at) VALUES (?,?,?,?,?,?)')
@@ -254,8 +258,10 @@ export class DemoService {
     const c = this.content(r)
     if (!f) return c
     if (c.photos.length >= MAX_PHOTOS) throw new Error('demo_too_many_photos')
+    const jpg = this.d.resizeImage(readFileSync(f))
+    if (!jpg.length) throw new Error('bad_image') // WebP и прочее, что nativeImage не читает
     const file = `img/${nextPhotoNum(this.root, r.slug)}.jpg`
-    writeDemoFile(this.root, r.slug, file, this.d.resizeImage(readFileSync(f)))
+    writeDemoFile(this.root, r.slug, file, jpg)
     const next: DemoContent = { ...c, photos: [...c.photos, { file, author: null, source: 'user' }] }
     this.save(placeId, next)
     return next
