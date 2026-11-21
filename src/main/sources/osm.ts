@@ -55,7 +55,7 @@ export function parseOverpass(json: unknown): RawPlace[] {
     const street = [t['addr:street'], t['addr:housenumber']].filter(Boolean).join(', ')
     out.push({
       source: 'osm', sourceId: `${el.type}/${el.id}`, name, lat, lon,
-      address: street || undefined, phones, website, contacts
+      address: street || undefined, phones, website, contacts, hours: t.opening_hours?.trim() || undefined
     })
   }
   return out

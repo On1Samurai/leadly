@@ -3,6 +3,7 @@
   "include": ["electron.vite.config.*", "vitest.config.ts", "src/main/**/*", "src/preload/**/*", "src/shared/**/*", "tests/**/*"],
   "compilerOptions": {
     "composite": true,
+    "jsx": "react-jsx",
     "resolveJsonModule": true,
     "paths": { "@shared/*": ["./src/shared/*"] },
     "types": ["electron-vite/node"]

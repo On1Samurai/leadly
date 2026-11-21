@@ -13,13 +13,15 @@ import { channelsFor } from '../core/links'
 import { parsePhone } from '../core/phones'
 import { scorePlace } from '../core/scoring'
 import { classifyWeb } from '../core/webclass'
-import { anthropicAsker, buildMessageInput, cacheKey, generateMessage, isTextReady, openaiAsker, type Asker, type MessageInput } from '../llm/message'
-import { historyFor, rescore } from '../search/rescore'
+import { buildMessageInput, cacheKey, generateMessage, isTextReady, type MessageInput } from '../llm/message'
+import { askerFor } from '../llm/asker'
+import { historyFor, modelWeights, rescore } from '../search/rescore'
 import { GoogleClient, Budget } from '../sources/google'
 import { getSecret } from '../secrets'
 import { loadSettings } from '../settings'
 import { PRIORS } from './data'
 import { define, type IpcDeps, type Table } from './define'
+import type { DemoService } from '../demo/service'
 
 export const latestFindings = (db: Db, placeId: number): Finding[] => {
   const r = db.prepare('SELECT findings FROM audits WHERE place_id=? ORDER BY id DESC LIMIT 1').get(placeId) as { findings: string } | undefined
@@ -43,28 +45,35 @@ export const toView = (db: Db, p: Place, s: AppSettings): PlaceView => ({
   channels: channelsFor(s.country, contactsOf(db, p.id), p.phoneE164, p.phoneType)
 })
 
-// лимиты блока «Что дальше»: всего не больше 50 строк
-const NEXT_LIMITS = { remind: 10, replied: 15, fresh: 25 }
+// лимиты блока «Что дальше»: сумма = 50 строк
+const NEXT_LIMITS = { wanted: 5, remind: 10, replied: 10, demo: 5, fresh: 20 }
 const NEXT_SELECT = `SELECT p.id, p.name, p.status, p.remind_at AS remindAt, p.score,
   (SELECT MAX(created_at) FROM messages m WHERE m.place_id=p.id AND m.direction='in') AS lastIn,
-  (SELECT MAX(created_at) FROM messages m WHERE m.place_id=p.id AND m.direction='out') AS lastOut
+  (SELECT MAX(created_at) FROM messages m WHERE m.place_id=p.id AND m.direction='out') AS lastOut,
+  (SELECT COUNT(*) FROM demo_events e JOIN demos d ON d.id=e.demo_id WHERE d.place_id=p.id AND e.kind IN ('open','qr')) AS demoOpens,
+  (SELECT MAX(e.ts) FROM demo_events e JOIN demos d ON d.id=e.demo_id WHERE d.place_id=p.id AND e.kind IN ('open','qr')) AS lastDemo,
+  EXISTS (SELECT 1 FROM demo_events e JOIN demos d ON d.id=e.demo_id WHERE d.place_id=p.id AND e.kind='want' AND e.ts>=?
+    AND e.ts>COALESCE((SELECT MAX(created_at) FROM messages m WHERE m.place_id=p.id AND m.direction='out'),0)) AS wanted
   FROM places p WHERE (? IS NULL OR p.city_id=?)`
 
 type NextRow = Omit<NextActionInput, 'textReady'>
 
 function nextCandidates(db: Db, cityId: number | undefined, now: number, s: AppSettings): NextActionInput[] {
   const c = cityId ?? null
+  const since = now - 7 * 86_400_000
   const q = (cond: string, order: string, limit: number, ...extra: unknown[]): NextRow[] =>
-    db.prepare(`${NEXT_SELECT} AND ${cond} ORDER BY ${order} LIMIT ?`).all(c, c, ...extra, limit) as NextRow[]
+    db.prepare(`${NEXT_SELECT} AND ${cond} ORDER BY ${order} LIMIT ?`).all(since, c, c, ...extra, limit) as NextRow[]
   const rows = [
+    ...q(`wanted=1 AND p.status NOT IN ('deal','refused')`, 'p.score DESC', NEXT_LIMITS.wanted),
     ...q(`p.remind_at IS NOT NULL AND p.remind_at<=? AND p.status NOT IN ('deal','refused')`, 'p.remind_at', NEXT_LIMITS.remind, now),
     ...q(`p.status='replied' AND lastIn IS NOT NULL AND lastIn > COALESCE(lastOut,0)`, 'lastIn DESC', NEXT_LIMITS.replied),
+    ...q(`p.status='demo_opened' AND lastDemo IS NOT NULL AND lastDemo > COALESCE(lastOut,0)`, 'lastDemo DESC', NEXT_LIMITS.demo),
     ...q(`p.status='new'`, 'p.in_base DESC, p.score DESC, p.id DESC', NEXT_LIMITS.fresh)
   ]
   const seen = new Set<number>()
   const out = rows.filter((r) => !seen.has(r.id) && seen.add(r.id)).map((r) => {
     const p = getPlace(db, r.id)
-    return { ...r, textReady: p ? isTextReady(inputFor(db, p, s), db) : false }
+    return { ...r, wanted: !!r.wanted, textReady: p ? isTextReady(inputFor(db, p, s), db) : false }
   })
   // готовый текст вперёд только внутри новых; напоминания и ответившие остаются впереди (sort стабилен)
   const isNew = (x: NextActionInput): boolean => x.status === 'new' && !(x.remindAt !== null && x.remindAt <= now)
@@ -101,7 +110,7 @@ function takeRefresh(db: Db, now: number): boolean {
 const insideShots = (userDataDir: string, f: string): boolean =>
   resolve(f).startsWith(resolve(userDataDir, 'screenshots') + sep)
 
-export function placesHandlers(t: Table, d: IpcDeps): void {
+export function placesHandlers(t: Table, d: IpcDeps, demo: Pick<DemoService, 'removeForPlace'>): void {
   const { db } = d
 
   define(t, 'places.list', (_e, f) => {
@@ -121,13 +130,14 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
     const statusLog = (db.prepare('SELECT from_status AS "from", to_status AS "to", at FROM status_log WHERE place_id=? ORDER BY at, rowid')
       .all(id) as PlaceDetails['statusLog'])
     const prior = PRIORS.categories[p.category] ?? PRIORS.default
+    const model = modelWeights(db, PRIORS)
     const score = scorePlace(
       { webClass: p.webClass, phoneType: p.phoneType, reviews: p.reviews, rating: p.rating },
-      prior, historyFor(db, { categoryId: p.category, cityId: p.cityId }, d.now()), PRIORS.weights, PRIORS.default
+      prior, historyFor(db, { categoryId: p.category, cityId: p.cityId }, d.now()), model.weights, PRIORS.default
     )
     const channels: Channel[] = channelsFor(s.country, contacts, p.phoneE164, p.phoneType)
     const { score: _stored, ...rest } = p
-    return { ...rest, contacts, findings: latestFindings(db, id), messages, statusLog, score, channels }
+    return { ...rest, contacts, findings: latestFindings(db, id), messages, statusLog, score, channels, modelTrainedOn: model.trainedOn }
   })
 
   define(t, 'places.toBase', (_e, id, v) => { need(db, id); updatePlace(db, id, { inBase: v }) })
@@ -180,7 +190,9 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
     } finally { refreshing.delete(id) }
   })
 
-  define(t, 'places.remove', (_e, id) => {
+  define(t, 'places.remove', async (_e, id) => {
+    // демо с телефоном не должно остаться в открытом доступе: не сняли — место не удаляем
+    await demo.removeForPlace(id)
     const p = getPlace(db, id)
     if (p) { // кэш текстов, созданный до появления llm_cache.place_id, находим по ключу
       const s = loadSettings(db)
@@ -197,16 +209,8 @@ export function placesHandlers(t: Table, d: IpcDeps): void {
     requireLicense(db, d.now(), d.licensePublicKey)
     const p = need(db, id)
     const s = loadSettings(db)
-    let ask: Asker
-    if (s.llmProvider === 'anthropic') {
-      const key = getSecret(db, 'anthropic', d.secretEnv)
-      if (!key) throw new Error('no_anthropic_key')
-      ask = anthropicAsker(d.anthropicFactory(key))
-    } else {
-      const key = getSecret(db, 'llm', d.secretEnv)
-      if (!key) throw new Error('no_llm_key')
-      ask = openaiAsker({ baseUrl: s.llmBaseUrl, apiKey: key, model: s.llmModel })
-    }
+    const ask = askerFor(d, s)
+    if (!ask) throw new Error(s.llmProvider === 'anthropic' ? 'no_anthropic_key' : 'no_llm_key')
     return generateMessage(inputFor(db, p, s, tone), { ask, db, placeId: id })
   })
 

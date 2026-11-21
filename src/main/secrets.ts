@@ -11,14 +11,15 @@ export interface SafeStorageLike {
 }
 export interface SecretEnv { safeStorage: SafeStorageLike; isDev: boolean; env: Record<string, string | undefined> }
 
-export const SECRET_NAMES: readonly SecretName[] = ['llm', 'anthropic', 'google', 'telegram']
+export const SECRET_NAMES: readonly SecretName[] = ['llm', 'anthropic', 'google', 'telegram', 'github', 'cloudflare']
 const DEV_VARS: Record<SecretName, string> = {
-  llm: 'LLM_API_KEY', anthropic: 'ANTHROPIC_API_KEY', google: 'GOOGLE_API_KEY', telegram: 'TELEGRAM_BOT_TOKEN'
+  llm: 'LLM_API_KEY', anthropic: 'ANTHROPIC_API_KEY', google: 'GOOGLE_API_KEY', telegram: 'TELEGRAM_BOT_TOKEN',
+  github: 'GITHUB_TOKEN', cloudflare: 'CLOUDFLARE_API_TOKEN'
 }
-const key = (n: SecretName): string => `secret:${n}`
+const key = (n: SecretName | 'worker'): string => `secret:${n}`
 
 /** Шифрует через safeStorage и кладёт base64 в settings. Пустая строка удаляет ключ. Без шифрования — отказ, не plaintext. */
-export function setSecret(db: Db, name: SecretName, value: string, e: SecretEnv): void {
+export function setSecret(db: Db, name: SecretName | 'worker', value: string, e: SecretEnv): void {
   if (value === '') {
     db.prepare('DELETE FROM settings WHERE key=?').run(key(name))
     return
@@ -30,7 +31,7 @@ export function setSecret(db: Db, name: SecretName, value: string, e: SecretEnv)
 }
 
 /** Только для main-процесса. В renderer значение не уходит никогда. */
-export function getSecret(db: Db, name: SecretName, e: SecretEnv): string | null {
+export function getSecret(db: Db, name: SecretName | 'worker', e: SecretEnv): string | null {
   const r = db.prepare('SELECT value FROM settings WHERE key=?').get(key(name)) as { value: string } | undefined
   if (r) {
     try {
@@ -40,10 +41,14 @@ export function getSecret(db: Db, name: SecretName, e: SecretEnv): string | null
       }
     } catch { /* повреждённое значение: как будто ключа нет */ }
   }
-  if (e.isDev) return e.env[DEV_VARS[name]] || null
+  if (e.isDev && name !== 'worker') return e.env[DEV_VARS[name]] || null
   return null
 }
 
 export function hasSecret(db: Db, name: SecretName, e: SecretEnv): boolean {
   return getSecret(db, name, e) !== null
 }
+
+/** Секрет Worker: генерирует main, окно не видит (нет в SECRET_NAMES и схеме secrets.set). */
+export const getWorkerSecret = (db: Db, e: SecretEnv): string | null => getSecret(db, 'worker', e)
+export const setWorkerSecret = (db: Db, value: string, e: SecretEnv): void => setSecret(db, 'worker', value, e)

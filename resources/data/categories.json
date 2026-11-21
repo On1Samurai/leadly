@@ -12,7 +12,8 @@
       "ru": "кафе",
       "uk": "кафе"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "food"
   },
   {
     "id": "restaurant",
@@ -27,7 +28,8 @@
       "ru": "ресторан",
       "uk": "ресторан"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "food"
   },
   {
     "id": "bar",
@@ -45,7 +47,8 @@
       "ru": "бар",
       "uk": "бар"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "food"
   },
   {
     "id": "coffee",
@@ -61,7 +64,8 @@
       "ru": "кофейня",
       "uk": "кав’ярня"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "food"
   },
   {
     "id": "delivery",
@@ -81,7 +85,8 @@
       "ru": "доставка еды",
       "uk": "доставка їжі"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "food"
   },
   {
     "id": "barber",
@@ -97,7 +102,8 @@
       "ru": "барбершоп",
       "uk": "барбершоп"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "beauty"
   },
   {
     "id": "hair",
@@ -112,7 +118,8 @@
       "ru": "парикмахерская",
       "uk": "перукарня"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "beauty"
   },
   {
     "id": "nails",
@@ -128,7 +135,8 @@
       "ru": "маникюр",
       "uk": "манікюр"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "beauty"
   },
   {
     "id": "beauty",
@@ -143,7 +151,8 @@
       "ru": "салон красоты",
       "uk": "салон краси"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "beauty"
   },
   {
     "id": "car_wash",
@@ -158,7 +167,8 @@
       "ru": "автомойка",
       "uk": "автомийка"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "auto"
   },
   {
     "id": "car_service",
@@ -173,7 +183,8 @@
       "ru": "автосервис",
       "uk": "автосервіс"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "auto"
   },
   {
     "id": "dentist",
@@ -191,7 +202,8 @@
       "ru": "стоматология",
       "uk": "стоматологія"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "default"
   },
   {
     "id": "fitness",
@@ -210,7 +222,8 @@
       "ru": "фитнес",
       "uk": "фітнес"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "default"
   },
   {
     "id": "flowers",
@@ -225,7 +238,8 @@
       "ru": "цветы",
       "uk": "квіти"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "default"
   },
   {
     "id": "bakery",
@@ -240,7 +254,8 @@
       "ru": "пекарня",
       "uk": "пекарня"
     },
-    "menu": true
+    "menu": true,
+    "demoKind": "food"
   },
   {
     "id": "b2b",
@@ -267,6 +282,7 @@
       "ru": "компания",
       "uk": "компанія"
     },
-    "menu": false
+    "menu": false,
+    "demoKind": "default"
   }
 ]

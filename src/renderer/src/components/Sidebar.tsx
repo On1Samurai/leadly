@@ -6,6 +6,7 @@ const ITEMS: { page: Page; label: string }[] = [
   { page: 'search', label: 'Поиск' },
   { page: 'base', label: 'База' },
   { page: 'today', label: 'Сегодня' },
+  { page: 'demos', label: 'Демо' },
   { page: 'settings', label: 'Настройки' },
   { page: 'help', label: 'Помощь' }
 ]
@@ -22,12 +23,15 @@ export function Sidebar(): React.JSX.Element {
             <span aria-hidden="true" className="h-2 w-2 rounded-full bg-fg" />Есть обновление
           </button>)
         : <div className="mb-4" />}
-      {ITEMS.map((it) => (
-        <button key={it.page} type="button" onClick={() => navigate(it.page)} aria-current={page === it.page ? 'page' : undefined}
-          className={`cursor-pointer rounded-lg px-3 py-2 text-left text-sm transition-colors ${page === it.page ? 'bg-accent font-semibold text-bg' : 'text-muted hover:text-fg'}`}>
-          {it.label}
-        </button>
-      ))}
+      {ITEMS.map((it) => {
+        const on = page === it.page || (it.page === 'demos' && page === 'demoEditor') // редактор — часть раздела «Демо»
+        return (
+          <button key={it.page} type="button" onClick={() => navigate(it.page)} aria-current={on ? 'page' : undefined}
+            className={`cursor-pointer rounded-lg px-3 py-2 text-left text-sm transition-colors ${on ? 'bg-accent font-semibold text-bg' : 'text-muted hover:text-fg'}`}>
+            {it.label}
+          </button>
+        )
+      })}
     </nav>
   )
 }

@@ -1,3 +1,4 @@
+import type { DemoStatus } from '../../shared/demo/types'
 import type { Channel, Status, WebClass } from '../../shared/types'
 
 export const STATUS_LABEL: Record<Status, string> = {
@@ -14,3 +15,8 @@ export const CHANNEL_LABEL: Record<Channel, { short: string; title: string }> = 
   instagram: { short: 'IG', title: 'Instagram' }, vk: { short: 'VK', title: 'ВКонтакте' }, max: { short: 'MX', title: 'MAX' },
   call: { short: 'Тел', title: 'Позвонить' }, sms: { short: 'SMS', title: 'SMS' }
 }
+
+export const DEMO_STATUS_LABEL: Record<DemoStatus, string> = {
+  draft: 'Черновик', publishing: 'Публикуется…', published: 'Опубликовано', unpublished: 'Снято с публикации', error: 'Ошибка'
+}
+export const POSTCARD_HINT = 'Тёмный фон расходует много краски; печатайте на плотной бумаге'

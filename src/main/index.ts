@@ -1,5 +1,7 @@
 import { app, clipboard, dialog, safeStorage, shell, BrowserWindow, Menu, Tray, nativeImage } from 'electron'
 import Anthropic from '@anthropic-ai/sdk'
+import { randomUUID } from 'crypto'
+import { rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { navDecision } from './app-url'
@@ -13,10 +15,16 @@ import { PRIORS } from './ipc/data'
 import { desktopNotifier } from './notify'
 import { createBotManager, type BotManager } from './bot/bot'
 import { botNotifier } from './bot/notifier'
-import { getSecret } from './secrets'
+import { getSecret, getWorkerSecret } from './secrets'
+import { getSetting } from './db/repo'
+import type { WorkerConfig } from './demo/cloudflare'
+import { syncDemoEvents } from './demo/events'
+import { WorkerApi } from './demo/worker-api'
+import { rescoreAll } from './core/logreg'
 import { makeHandlers, noreplyRescore, Scheduler } from './scheduler'
 import { loadSettings } from './settings'
 import { createUpdater } from './updater'
+import { realSleep } from './sources/http'
 import { buildOverpassQuery, fetchOverpass, parseOverpass } from './sources/osm'
 
 let db: Db | null = null
@@ -89,6 +97,20 @@ const applyAutostart = (conn: Db): void => {
   app.setLoginItemSettings({ openAtLogin: loadSettings(conn).autostart, args: ['--hidden'] })
 }
 
+/** HTML -> PDF через скрытое окно; файл и окно убираются и при ошибке. Через файл, а не data: URL (лимит ~2 МБ). */
+async function printPdf(html: string): Promise<Buffer> {
+  const win = new BrowserWindow({ show: false, webPreferences: { javascript: false } })
+  const file = join(app.getPath('temp'), `leadly-print-${randomUUID()}.html`)
+  try {
+    writeFileSync(file, html)
+    await win.loadFile(file)
+    return await win.webContents.printToPDF({ pageSize: 'A4', printBackground: true, margins: { top: 0, bottom: 0, left: 0, right: 0 } })
+  } finally {
+    win.destroy()
+    rmSync(file, { force: true })
+  }
+}
+
 app.whenReady().then(() => {
   if (!app.hasSingleInstanceLock()) return
   const userDataDir = app.getPath('userData')
@@ -116,21 +138,46 @@ app.whenReady().then(() => {
     now: Date.now,
     rng: Math.random,
     osm: (bbox, cat) => fetchOverpass(buildOverpassQuery(bbox, cat)).then(parseOverpass),
-    saveDialog: async (defaultName) => {
-      const r = await dialog.showSaveDialog({ defaultPath: defaultName, filters: [{ name: 'SQLite', extensions: ['db'] }] })
+    saveDialog: async (defaultName, kind = 'db') => {
+      const filters = kind === 'pdf' ? [{ name: 'PDF', extensions: ['pdf'] }] : [{ name: 'SQLite', extensions: ['db'] }]
+      const r = await dialog.showSaveDialog({ defaultPath: defaultName, filters })
       return r.canceled || !r.filePath ? null : r.filePath
+    },
+    fetch: (input, init) => fetch(input, init),
+    sleep: realSleep,
+    resizeImage: (b, maxWidth = 1200) => {
+      const img = nativeImage.createFromBuffer(b)
+      const { width } = img.getSize()
+      return (width > maxWidth ? img.resize({ width: maxWidth }) : img).toJPEG(80)
+    },
+    printPdf,
+    openDialog: async (kind) => {
+      const filters = {
+        folder: [], zip: [{ name: 'ZIP', extensions: ['zip'] }], html: [{ name: 'HTML', extensions: ['html', 'htm'] }],
+        image: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]
+      }[kind]
+      const r = await dialog.showOpenDialog({ properties: kind === 'folder' ? ['openDirectory'] : ['openFile'], filters })
+      return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
     },
     openExternal: (url) => shell.openExternal(url),
     writeClipboard: (text) => clipboard.writeText(text),
     anthropicFactory: (apiKey) => new Anthropic({ apiKey })
   }).isPassRunning
+  const notifier = botNotifier({
+    send: (html) => botMgr.send(html), bound: botMgr.bound, unlink: botMgr.unlink, desktop: desktopNotifier,
+    log: (m, e) => console.error(m, e)
+  })
   const sch = new Scheduler(conn, makeHandlers(conn, {
-    notify: botNotifier({
-      send: (html) => botMgr.send(html), bound: botMgr.bound, unlink: botMgr.unlink, desktop: desktopNotifier,
-      log: (m, e) => console.error(m, e)
-    }),
+    notify: notifier,
     backup: (now) => backupNow(conn, join(userDataDir, 'backups'), now),
-    noreply: (now) => noreplyRescore(conn, PRIORS, now)
+    noreply: (now) => noreplyRescore(conn, PRIORS, now),
+    rescore: (now) => rescoreAll(conn, PRIORS, now),
+    demoEvents: async (now) => {
+      const cfg = getSetting<WorkerConfig | null>(conn, 'demo:worker', null)
+      const secret = getWorkerSecret(conn, secretEnv)
+      if (!cfg || !secret) return
+      await syncDemoEvents(conn, new WorkerApi(fetch, cfg.url, secret), now, (e) => notifier.demo(e))
+    }
   }), Date.now, () => ({ digestTime: loadSettings(conn).digestTime, latestCatchUp: '12:00' }))
   scheduler = sch
   sch.start()

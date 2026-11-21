@@ -4,12 +4,13 @@ import type { AppSettings, Tone } from './settings'
 import type { MissionStep } from './mission'
 import type { NextActionInput } from './nextAction'
 import type { BBox, Channel, Contact, Finding, Place, Status, WebClass } from './types'
+import type { DemoContent, DemoView, SetupState } from './demo/types'
 
 export interface LicenseState { valid: boolean; name?: string; exp?: number | null; reason?: string }
 export type UpdateState = 'idle' | 'checking' | 'available' | 'none' | 'downloading' | 'downloaded' | 'error'
 export interface UpdateEvent { state: UpdateState; version?: string; percent?: number; message?: string }
 
-export type SecretName = 'llm' | 'anthropic' | 'google' | 'telegram'
+export type SecretName = 'llm' | 'anthropic' | 'google' | 'telegram' | 'github' | 'cloudflare'
 
 export interface CityHit { id: string; name: string; displayName: string; bbox: BBox; polygon: GeoPolygon | GeoMultiPolygon | null }
 export interface PassSummary { passId: number; cellsDone: number; newCount: number; dupCount: number; googleUsed: number; stopped: boolean }
@@ -36,8 +37,9 @@ export interface PlaceDetails extends Omit<Place, 'score'> {
   statusLog: { from: Status | null; to: Status; at: number }[]
   score: Score
   channels: Channel[]
+  modelTrainedOn: number | null
 }
-export interface TodayView { goal: number; written: number; remindToday: PlaceView[]; replied: PlaceView[]; leftToday: number }
+export interface TodayView { goal: number; written: number; remindToday: PlaceView[]; replied: PlaceView[]; wanted: PlaceView[]; leftToday: number }
 
 export type WriteOpen = { url: string | null; prefilled: boolean; left: number } | { blocked: true; limit: number }
 
@@ -69,6 +71,27 @@ export interface Api {
     check(): Promise<UpdateEvent>; download(): Promise<void>; install(): Promise<void>; status(): Promise<UpdateEvent>
     onEvent(cb: (e: UpdateEvent) => void): () => void
   }
+  demo: {
+    get(placeId: number): Promise<DemoView | null>
+    list(): Promise<(DemoView & { placeName: string })[]>
+    match(placeId: number): Promise<{ googleId: string; name: string; address: string | null; distanceM: number } | null>
+    build(placeId: number, o: { source: 'auto' | 'free'; googleId?: string }): Promise<DemoView>
+    save(placeId: number, c: DemoContent): Promise<void>
+    rewrite(placeId: number): Promise<DemoContent>
+    /** HTML, фото как data: URL */
+    preview(placeId: number, c: DemoContent): Promise<string>
+    photoAdd(placeId: number): Promise<DemoContent>
+    importSite(placeId: number, kind: 'folder' | 'zip' | 'html'): Promise<DemoView>
+    setImportBadge(placeId: number, on: boolean): Promise<DemoView>
+    publish(placeId: number): Promise<DemoView>
+    unpublish(placeId: number): Promise<DemoView>
+    openLive(placeId: number): Promise<void>
+    postcard(placeIds: number[]): Promise<string | null>
+    setup(): Promise<SetupState>
+    setupGithub(repo?: string): Promise<SetupState>
+    setupWorker(): Promise<SetupState>
+    budget(): Promise<{ left: number; limit: number; costUsd: number; need: number }>
+  }
 }
 
 /** Единственный источник каналов: preload строит window.api из него, main регистрирует ровно их. */
@@ -88,7 +111,11 @@ export const METHODS: MethodMap = {
   bot: { bindCode: true, unlink: true, status: true },
   backup: { export: true },
   license: { get: true, set: true },
-  update: { check: true, download: true, install: true, status: true }
+  update: { check: true, download: true, install: true, status: true },
+  demo: {
+    get: true, list: true, match: true, build: true, save: true, rewrite: true, preview: true, photoAdd: true, importSite: true, setImportBadge: true,
+    publish: true, unpublish: true, openLive: true, postcard: true, setup: true, setupGithub: true, setupWorker: true, budget: true
+  }
 }
 export type ChannelName = { [G in keyof MethodMap]: `${G}.${keyof MethodMap[G] & string}` }[keyof MethodMap]
 export const PASS_EVENT = 'pass.event'

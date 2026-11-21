@@ -1,5 +1,5 @@
 import type { Db } from './db/db'
-import { getPlace } from './db/repo'
+import { getPlace, getSetting } from './db/repo'
 import { rescore } from './search/rescore'
 import type { Priors } from './core/scoring'
 import type { TodayView } from '../shared/ipc'
@@ -10,13 +10,14 @@ import { atLocal, nextHour, startOfDay } from './time'
 
 export { atLocal, nextHour, startOfDay }
 
-export type JobKind = 'reminder' | 'digest' | 'backup' | 'noreply'
+export type JobKind = 'reminder' | 'digest' | 'backup' | 'noreply' | 'demo_events' | 'rescore'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Handlers = Record<JobKind, (payload: any, now: number) => Promise<void>>
 export interface DailyCfg { digestTime: string; latestCatchUp: string }
 
 const RETRY_MS = 30 * 60_000
 const BATCH = 50
+const DEMO_EVENTS_MS = 5 * 60_000
 const BACKUP_COOLDOWN_MS = 60 * 60_000
 export const BACKUP_TIME = '04:00'
 
@@ -63,6 +64,8 @@ export class Scheduler {
     if (!this.hasPending('digest')) this.add('digest', nextDaily(now, s.digestTime, this.doneToday('digest', now), s.latestCatchUp))
     if (!this.hasPending('backup')) this.add('backup', Math.max(nextDaily(now, BACKUP_TIME, this.doneToday('backup', now)), this.backupCooldownEnd()))
     if (!this.hasPending('noreply')) this.add('noreply', nextHour(now))
+    if (!this.hasPending('rescore')) this.add('rescore', nextHour(now))
+    if (!this.hasPending('demo_events') && getSetting(this.db, 'demo:worker', null)) this.add('demo_events', now)
   }
 
   private finish(id: number, now: number, dropped: boolean): void {
@@ -136,6 +139,8 @@ export interface HandlerDeps {
   notify: { digest(v: TodayView): Promise<void>; reminder(p: Place): Promise<void> }
   backup: (now: number) => Promise<unknown>
   noreply: (now: number) => Promise<void> | void
+  demoEvents: (now: number) => Promise<void>
+  rescore: (now: number) => Promise<void> | void
 }
 
 export function makeHandlers(db: Db, d: HandlerDeps): Handlers {
@@ -147,6 +152,15 @@ export function makeHandlers(db: Db, d: HandlerDeps): Handlers {
       if (place && place.status === 'later') await d.notify.reminder(place)
     },
     backup: async (_p, now) => { await d.backup(now) },
-    noreply: async (_p, now) => { await d.noreply(now) }
+    noreply: async (_p, now) => { await d.noreply(now) },
+    rescore: async (_p, now) => { await d.rescore(now) },
+    demo_events: async (_p, now) => {
+      if (!getSetting(db, 'demo:worker', null)) return
+      // ошибка (нет сети, Worker упал) не идёт в общий повтор каждую минуту: следующая попытка через 5 минут
+      try { await d.demoEvents(now) } catch (e) { console.error('demo_events failed', (e as Error)?.message) }
+      // текущая задача ещё не закрыта (run_at <= now), поэтому ищем только будущие
+      if (!db.prepare("SELECT 1 FROM jobs WHERE kind='demo_events' AND done=0 AND run_at>?").get(now))
+        db.prepare("INSERT INTO jobs(kind,run_at,payload,done) VALUES ('demo_events',?,NULL,0)").run(now + DEMO_EVENTS_MS)
+    }
   }
 }

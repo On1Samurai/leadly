@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { stage2Deps } from './helpers/deps'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,7 +27,7 @@ describe('write.* и воронка', () => {
     db, secretEnv: { safeStorage: { isEncryptionAvailable: () => true, encryptString: (s: string) => Buffer.from(s), decryptString: (b: Buffer) => b.toString() }, isDev: false, env: {} },
     userDataDir: dir, auditQueue: new AuditQueue(1, async () => undefined),
     now: () => now, rng: Math.random, osm: async () => [], saveDialog: async () => null,
-    anthropicFactory: () => { throw new Error('unused') },
+    anthropicFactory: () => { throw new Error('unused') }, ...stage2Deps,
     openExternal: async (u) => { opened.push(u) }, writeClipboard: (t) => { copied.push(t) }
   })
   const mk = (over: Partial<Omit<Place, 'id'>> = {}): number => insertPlace(db, {
@@ -154,7 +155,7 @@ describe('write: доп. случаи', () => {
   const deps = (over: Partial<IpcDeps> = {}): IpcDeps => ({
     db, secretEnv: { safeStorage: { isEncryptionAvailable: () => true, encryptString: (s: string) => Buffer.from(s), decryptString: (b: Buffer) => b.toString() }, isDev: false, env: {} },
     userDataDir: dir, auditQueue: new AuditQueue(1, async () => undefined), now: () => now, rng: Math.random,
-    osm: async () => [], saveDialog: async () => null, anthropicFactory: () => { throw new Error('unused') },
+    osm: async () => [], saveDialog: async () => null, anthropicFactory: () => { throw new Error('unused') }, ...stage2Deps,
     openExternal: async () => undefined, writeClipboard: () => undefined, ...over
   })
   const mk = (over: Partial<Omit<Place, 'id'>> = {}): number => insertPlace(db, {

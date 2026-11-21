@@ -9,7 +9,7 @@ import { KEY_HELP, errText } from '../lib'
 export function Onboarding({ onDone }: { onDone: () => void }): React.JSX.Element {
   const [step, setStep] = useState(1)
   const [s, setS] = useState<AppSettings>(DEFAULT_SETTINGS)
-  const [has, setHas] = useState<Record<SecretName, boolean>>({ llm: false, anthropic: false, google: false, telegram: false })
+  const [has, setHas] = useState<Record<SecretName, boolean>>({ llm: false, anthropic: false, google: false, telegram: false, github: false, cloudflare: false })
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {

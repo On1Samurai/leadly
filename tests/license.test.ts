@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { stage2Deps } from './helpers/deps'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -66,7 +67,7 @@ describe('licenseState / gating', () => {
   const deps = (): IpcDeps => ({
     db, secretEnv: { safeStorage: { isEncryptionAvailable: () => false, encryptString: () => Buffer.from(''), decryptString: () => '' }, isDev: true, env: {} },
     userDataDir: dir, auditQueue: new AuditQueue(1, async () => undefined), now: () => NOW, rng: Math.random,
-    osm: async () => [], saveDialog: async () => null, anthropicFactory: () => { throw new Error('unused') },
+    osm: async () => [], saveDialog: async () => null, anthropicFactory: () => { throw new Error('unused') }, ...stage2Deps,
     openExternal: async () => undefined, writeClipboard: () => undefined, licensePublicKey: pub
   })
   const ev = {} as never

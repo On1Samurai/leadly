@@ -33,6 +33,18 @@ afterEach(() => {
 })
 
 describe('db', () => {
+  it('migrates 005', () => {
+    const names = (db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((r) => r.name)
+    expect(names).toEqual(expect.arrayContaining(['place_details', 'demos', 'demo_events']))
+    const cols = (db.prepare('PRAGMA table_info(places)').all() as { name: string }[]).map((c) => c.name)
+    expect(cols).toContain('osm_hours')
+    const pid = insertPlace(db, mkPlace())
+    const ins = (slug: string): unknown => db.prepare(
+      "INSERT INTO demos(place_id,slug,kind,source,content,created_at,updated_at) VALUES (?,?,'template','free','{}',0,0)").run(pid, slug)
+    ins('a')
+    expect(() => ins('b')).toThrow(/UNIQUE/)
+  })
+
   it('updatePlace ignores unknown, prototype and undefined keys', () => {
     const id = insertPlace(db, mkPlace({ name: 'A', rating: 4 }))
     updatePlace(db, id, { name: 'B', rating: undefined, toString: 'x', hasOwnProperty: 1, 'name=1; --': 'z', id: 99 } as never)
@@ -46,7 +58,7 @@ describe('db', () => {
   it('migrate twice is idempotent', () => {
     migrate(db)
     const rows = db.prepare('SELECT version FROM schema_version').all() as { version: number }[]
-    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4])
+    expect(rows.map((r) => r.version)).toEqual([1, 2, 3, 4, 5, 6])
   })
 
   it('миграция 002: places.deal_amount', () => {
@@ -125,5 +137,17 @@ describe('db', () => {
     expect(db.prepare('SELECT COUNT(*) n FROM places').get()).toEqual({ n: 0 })
     // другое место вставляется
     expect(upsertRaw(db, { ...g, sourceId: 'gp-2', phones: [], lat: 52 }, ctx)).toBe('new')
+  })
+
+  it('upsertRaw: osmHours пишется и заполняет только пустое поле', () => {
+    const ctx = { country: 'BY', cityId: 1, cellId: null, categoryId: 'cafe', now: 5 }
+    const o = { source: 'osm' as const, sourceId: 'node/5', name: 'Кафе Х', lat: 50, lon: 30, phones: [], contacts: [] }
+    expect(upsertRaw(db, o, ctx)).toBe('new')
+    const id = (db.prepare('SELECT id FROM places').get() as { id: number }).id
+    expect(getPlace(db, id)!.osmHours).toBeNull()
+    expect(upsertRaw(db, { ...o, hours: 'Mo-Fr 09:00-18:00' }, ctx)).toBe('dup')
+    expect(getPlace(db, id)!.osmHours).toBe('Mo-Fr 09:00-18:00')
+    upsertRaw(db, { ...o, hours: '24/7' }, ctx)
+    expect(getPlace(db, id)!.osmHours).toBe('Mo-Fr 09:00-18:00')
   })
 })

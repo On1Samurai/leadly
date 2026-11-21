@@ -1,0 +1,190 @@
+import type { FetchFn, SleepFn } from '../sources/http'
+
+type GhCode = 'gh_bad_token' | 'gh_no_access' | 'gh_not_found' | 'gh_conflict' | 'gh_offline' | 'gh_tree_truncated' | 'gh_no_branch' | `gh_http_${number}`
+
+// message is the bare code: the token never reaches error text
+export class GitHubError extends Error {
+  constructor(public code: GhCode) {
+    super(code)
+  }
+}
+
+export interface GhRepo { owner: string; repo: string }
+type Res = { status: number; json: any }
+type TreeEntry = { path: string; mode: '100644'; type: 'blob'; sha: string | null }
+
+const API = 'https://api.github.com'
+const ROBOTS = 'User-agent: *\nDisallow: /\n'
+const INDEX = '<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><title>Leadly demos</title><p>Здесь демо-сайты.</p>'
+
+export class GitHubPages {
+  constructor(private fetch: FetchFn, private token: string, private repo: GhRepo | null) {}
+
+  private r(): string {
+    if (!this.repo) throw new Error('gh_no_repo')
+    return `/repos/${this.repo.owner}/${this.repo.repo}`
+  }
+
+  // statuses in `ok` are returned instead of thrown
+  private async req(method: string, path: string, body?: unknown, ok: number[] = []): Promise<Res> {
+    let res: Response
+    try {
+      res = await this.fetch(API + path, {
+        method,
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+    } catch {
+      throw new GitHubError('gh_offline')
+    }
+    const json = await res.json().catch(() => ({}))
+    if (res.ok || ok.includes(res.status)) return { status: res.status, json }
+    throw new GitHubError(
+      res.status === 401 ? 'gh_bad_token' : res.status === 403 ? 'gh_no_access' : res.status === 404 ? 'gh_not_found' : res.status === 422 ? 'gh_conflict' : `gh_http_${res.status}`,
+    )
+  }
+
+  async login(): Promise<string> {
+    return (await this.req('GET', '/user')).json.login
+  }
+
+  // 2xx with an unexpected body: an error code, not a TypeError further on
+  private bad(res: Res): never {
+    throw new GitHubError(`gh_http_${res.status}`)
+  }
+
+  private async treePaths(headSha: string): Promise<{ treeSha: string; paths: string[] }> {
+    const r = this.r()
+    const c = await this.req('GET', `${r}/git/commits/${headSha}`)
+    const treeSha = c.json?.tree?.sha
+    if (typeof treeSha !== 'string') this.bad(c)
+    const t = await this.req('GET', `${r}/git/trees/${treeSha}?recursive=1`)
+    if (!Array.isArray(t.json?.tree)) this.bad(t)
+    // partial listing: publish/unpublish would miss files to delete
+    if (t.json.truncated) throw new GitHubError('gh_tree_truncated')
+    const tree = t.json.tree as ({ path?: unknown; type?: unknown } | null)[]
+    return { treeSha, paths: tree.filter((e) => e?.type === 'blob' && typeof e.path === 'string').map((e) => e!.path as string) }
+  }
+
+  /** 404 on the repo itself: it does not exist (or is hidden from the token). */
+  async exists(): Promise<boolean> {
+    return (await this.req('GET', this.r(), undefined, [404])).status !== 404
+  }
+
+  private put(path: string, content: string) {
+    return this.req('PUT', `${this.r()}/contents/${path}`, { message: 'init', branch: 'main', content: Buffer.from(content).toString('base64') })
+  }
+
+  async ensureInit(): Promise<void> {
+    const ref = await this.req('GET', `${this.r()}/git/ref/heads/main`, undefined, [404, 409])
+    if (ref.status === 404 || ref.status === 409) {
+      await this.put('robots.txt', ROBOTS)
+      await this.put('index.html', INDEX)
+      return
+    }
+    const head = ref.json?.object?.sha
+    if (typeof head !== 'string') this.bad(ref)
+    if (!(await this.treePaths(head)).paths.includes('robots.txt')) await this.put('robots.txt', ROBOTS)
+  }
+
+  async enablePages(): Promise<'ok' | 'manual'> {
+    try {
+      await this.req('POST', `${this.r()}/pages`, { source: { branch: 'main', path: '/' } }, [409])
+      return 'ok'
+    } catch (e) {
+      if (e instanceof GitHubError && (e.code === 'gh_no_access' || e.code === 'gh_not_found')) return 'manual'
+      throw e
+    }
+  }
+
+  async check(): Promise<{ ok: boolean; pagesUrl?: string; error?: string }> {
+    try {
+      const repo = (await this.req('GET', this.r())).json
+      if (repo.permissions && !repo.permissions.push) return { ok: false, error: 'gh_no_access' }
+      const pages = await this.req('GET', `${this.r()}/pages`, undefined, [404])
+      if (pages.status === 404) return { ok: false, error: 'gh_pages_off' }
+      return { ok: true, pagesUrl: pages.json.html_url }
+    } catch (e) {
+      if (e instanceof GitHubError) return { ok: false, error: e.code }
+      throw e
+    }
+  }
+
+  // One commit on top of main; `build` returns tree entries (null = nothing to do). A 422 on the
+  // ref means main moved: rebuild everything on the new head, once.
+  private async commit(msg: string, build: (existing: string[]) => Promise<TreeEntry[] | null>): Promise<string | null> {
+    const r = this.r()
+    for (let attempt = 0; ; attempt++) {
+      const ref = await this.req('GET', `${r}/git/ref/heads/main`, undefined, [404])
+      // 404 on the ref of a live repo: main is gone, not the repo
+      if (ref.status === 404) throw new GitHubError((await this.exists()) ? 'gh_no_branch' : 'gh_not_found')
+      const head = ref.json?.object?.sha
+      if (typeof head !== 'string') this.bad(ref)
+      const { treeSha, paths } = await this.treePaths(head)
+      const entries = await build(paths)
+      if (!entries) return null
+      const tree = (await this.req('POST', `${r}/git/trees`, { base_tree: treeSha, tree: entries })).json.sha
+      const sha = (await this.req('POST', `${r}/git/commits`, { message: msg, tree, parents: [head] })).json.sha as string
+      const upd = await this.req('PATCH', `${r}/git/refs/heads/main`, { sha, force: false }, [422])
+      if (upd.status !== 422) return sha
+      if (attempt >= 1) throw new GitHubError('gh_conflict')
+    }
+  }
+
+  private dropped(slug: string, existing: string[], keep: Set<string>): TreeEntry[] {
+    return existing
+      .filter((p) => p.startsWith(`${slug}/`) && !keep.has(p))
+      .map((path) => ({ path, mode: '100644', type: 'blob', sha: null }))
+  }
+
+  async publish(slug: string, files: { path: string; content: Buffer }[], msg: string): Promise<string> {
+    const keep = new Set(files.map((f) => `${slug}/${f.path}`))
+    return (await this.commit(msg, async (existing) => {
+      const added: TreeEntry[] = []
+      for (const f of files) {
+        const blob = await this.req('POST', `${this.r()}/git/blobs`, { content: f.content.toString('base64'), encoding: 'base64' })
+        added.push({ path: `${slug}/${f.path}`, mode: '100644', type: 'blob', sha: blob.json.sha })
+      }
+      return [...added, ...this.dropped(slug, existing, keep)]
+    }))!
+  }
+
+  unpublish(slug: string): Promise<string | null> {
+    return this.commit(`remove: ${slug}`, async (existing) => {
+      const del = this.dropped(slug, existing, new Set())
+      return del.length ? del : null
+    })
+  }
+
+  async waitBuild(sha: string, sleep: SleepFn, timeoutMs = 180_000): Promise<'built' | 'errored' | 'timeout'> {
+    let fails = 0
+    for (let elapsed = 0; ; elapsed += 10_000) {
+      let b: Res
+      let bad: GitHubError | null = null
+      try {
+        b = await this.req('GET', `${this.r()}/pages/builds/latest`, undefined, [404])
+        // null / non-object body: same as a hiccup, not a TypeError below
+        if (!b.json || typeof b.json !== 'object') throw (bad = new GitHubError(`gh_http_${b.status}`))
+        fails = 0
+      } catch (e) {
+        // the commit is already pushed: a short GitHub hiccup should not fail the publish
+        const transient = e === bad || (e instanceof GitHubError && (e.code === 'gh_offline' || /^gh_http_5\d\d$/.test(e.code)))
+        if (!transient || ++fails > 3) throw e
+        b = { status: 0, json: {} }
+      }
+      if (b.json.commit === sha && b.json.status === 'built') return 'built'
+      if (b.json.commit === sha && b.json.status === 'errored') return 'errored'
+      if (elapsed >= timeoutMs) return 'timeout'
+      await sleep(10_000)
+    }
+  }
+
+  pagesUrl(slug: string): string {
+    this.r()
+    return `https://${this.repo!.owner.toLowerCase()}.github.io/${this.repo!.repo}/${slug}/`
+  }
+}

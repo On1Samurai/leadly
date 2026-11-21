@@ -36,7 +36,7 @@ export function upsertRaw(db: Db, raw: RawPlace, ctx: UpsertCtx): 'new' | 'dup' 
     phoneE164: first?.e164 ?? null, phoneType: first?.type ?? 'unknown', website: raw.website ?? null, webClass,
     rating: raw.rating ?? null, reviews: raw.reviews ?? null,
     googlePlaceId: googlePlaceId ?? null, osmId: osmId ?? null,
-    googleFetchedAt: raw.source === 'google' ? ctx.now : null
+    googleFetchedAt: raw.source === 'google' ? ctx.now : null, osmHours: raw.hours ?? null
   }
 
   if (dupId !== null) {
@@ -52,7 +52,7 @@ export function upsertRaw(db: Db, raw: RawPlace, ctx: UpsertCtx): 'new' | 'dup' 
     cellId: ctx.cellId, phoneE164: inc.phoneE164!, phoneType: inc.phoneType!, website: inc.website!, webClass,
     rating: inc.rating!, reviews: inc.reviews!, googlePlaceId: inc.googlePlaceId!, osmId: inc.osmId!,
     googleFetchedAt: inc.googleFetchedAt!, status: 'new', inBase: false, remindAt: null, score: 0, scoreReason: '',
-    createdAt: ctx.now, dealAmount: null
+    createdAt: ctx.now, dealAmount: null, osmHours: inc.osmHours
   })
   addContacts(db, id, contacts)
   return 'new'
